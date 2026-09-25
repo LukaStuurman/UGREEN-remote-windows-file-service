@@ -10,7 +10,7 @@ De eerste implementatie staat op `main` in commit `456fe4d` (`feat: add UGREENli
 
 ## Belangrijke status op 2026-09-25
 
-- Server-API-tests: 6 tests geslaagd (laatste uitvoering op 2026-09-25).
+- Server-API-tests: 7 tests geslaagd (laatste uitvoering op 2026-09-25), inclusief byte-range writes en append.
 - Python syntaxcontrole: geslaagd.
 - Windows-client `dotnet build` en self-contained `win-x64` publish: geslaagd, 0 buildfouten.
 - Windows-clienttests voor SMB-sharevalidatie: 2 tests geslaagd (laatste uitvoering op 2026-09-25).
@@ -77,7 +77,7 @@ Alle API-routes behalve `/` en `/api/v1/health` vereisen `Authorization: Bearer 
 | `GET /api/v1/read?path=&offset=&length=` | Lees een bytebereik; maximaal 4 MiB per verzoek |
 | `GET /api/v1/space` | Beschikbare en totale schijfruimte |
 | `POST /api/v1/create?path=` | Maak een leeg bestand aan |
-| `PUT /api/v1/write?path=&offset=` | Schrijf ruwe bytes vanaf een offset; body maximaal 4 MiB |
+| `PUT /api/v1/write?path=&offset=` | Schrijf ruwe bytes vanaf een offset; `offset=-1` voegt atomair achteraan toe; body maximaal 4 MiB |
 | `POST /api/v1/mkdir?path=` | Maak één map aan |
 | `POST /api/v1/resize?path=&size=` | Wijzig bestandsgrootte |
 | `POST /api/v1/rename` | JSON-body met `source`, `target`, optioneel `replace` |

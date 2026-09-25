@@ -73,6 +73,21 @@ class FileApiTests(unittest.TestCase):
             self.request("GET", "/api/v1/stat?" + urlencode({"path": "../outside"}))
         self.assertEqual(denied.exception.code, 400)
 
+    def test_append_write_adds_bytes_at_end_and_rejects_other_negative_offsets(self):
+        self.request("POST", "/api/v1/create?" + urlencode({"path": "append.txt"})).close()
+        self.request("PUT", "/api/v1/write?" + urlencode({"path": "append.txt", "offset": "0"}), body=b"start").close()
+        self.request("PUT", "/api/v1/write?" + urlencode({"path": "append.txt", "offset": "-1"}), body=b"-end").close()
+
+        response = self.request("GET", "/api/v1/read?" + urlencode({"path": "append.txt", "offset": "0", "length": "100"}))
+        self.assertEqual(response.read(), b"start-end")
+        response.close()
+
+        with self.assertRaises(HTTPError) as denied:
+            self.request("PUT", "/api/v1/write?" + urlencode({"path": "append.txt", "offset": "-2"}), body=b"bad")
+        self.assertEqual(denied.exception.code, 400)
+
+        self.request("DELETE", "/api/v1/file?" + urlencode({"path": "append.txt"})).close()
+
     def test_symlinks_are_rejected(self):
         target = self.root.parent / "outside-test"
         try:

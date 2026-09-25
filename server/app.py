@@ -15,7 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 PORT = int(os.environ.get("PORT", "8080"))
 DATA_ROOT = Path(os.environ.get("DATA_ROOT", "/data")).resolve()
 ACCESS_TOKEN = os.environ.get("UGREEN_DRIVE_TOKEN", "")
@@ -238,13 +238,19 @@ class Handler(BaseHTTPRequestHandler):
         if method == "PUT" and path == "/api/v1/write":
             file_path = resolve_user_path(args.get("path", ""))
             offset = int(args.get("offset", "0"))
-            if offset < 0 or file_path == DATA_ROOT or file_path.is_dir():
+            append = offset == -1
+            if offset < -1 or file_path == DATA_ROOT or file_path.is_dir():
                 raise ApiError(400, "invalid file or offset")
             body = self.read_body()
+            flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+            if append:
+                flags |= os.O_APPEND
             try:
-                fd = os.open(file_path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o660)
+                fd = os.open(file_path, flags, 0o660)
                 try:
-                    if hasattr(os, "pwrite"):
+                    if append:
+                        written = os.write(fd, body)
+                    elif hasattr(os, "pwrite"):
                         written = os.pwrite(fd, body, offset)
                     else:
                         os.lseek(fd, offset, os.SEEK_SET)

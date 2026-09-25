@@ -51,7 +51,7 @@ See `RELEASING.md` for the release checklist. A green GitHub workflow validates 
 
 ## Supported file operations
 
-Directory listing and metadata, read, create, write by byte range, truncate, make directory, rename, delete, modification time, and free-space queries. Symbolic links are deliberately refused by the container. Windows file locking, alternate data streams, security-descriptor editing, and offline write caching are not provided; do not use this mount for databases or applications that require reliable byte-range locks.
+Directory listing and metadata, read, create, write by byte range or append, truncate, make directory, rename, delete, modification time, and free-space queries. Symbolic links are deliberately refused by the container. Windows file locking, alternate data streams, security-descriptor editing, and offline write caching are not provided; do not use this mount for databases or applications that require reliable byte-range locks.
 
 ## Security and limits
 
