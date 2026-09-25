@@ -53,10 +53,12 @@ jobs:
           ' >/dev/null
           printf '%s' "$config" | jq -e '
             (.services["ugreen-remote-drive"].volumes[0].source == "/tmp/Techbase") and
+            (.services["ugreen-remote-drive"].volumes[0].type == "bind") and
             (.services["ugreen-remote-drive"].volumes[0].target == "/data") and
-            (.services["ugreen-remote-drive"].volumes[0].bind.create_host_path == false) and
             (.services["ugreen-remote-drive"].environment.TECHBASE_HOST_PATH == "/tmp/Techbase")
           ' >/dev/null
+          # Compose's JSON normalizer writes the explicit false option as an empty bind object.
+          grep -Fq 'create_host_path: false' docker-compose.ugreen.yaml
       - name: Build and smoke-test isolated container
         shell: bash
         run: |
