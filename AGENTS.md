@@ -80,7 +80,7 @@ Alle API-routes behalve `/` en `/api/v1/health` vereisen `Authorization: Bearer 
 | `DELETE /api/v1/directory?path=` | Verwijder een lege map |
 | `POST /api/v1/times` | JSON-body met `path` en `modifiedUtcEpoch` |
 
-De server weigert absolute paden, `..`, paden buiten de ingestelde root, symbolische links en niet-reguliere bestandstypen. De share-root zelf mag niet verwijderd of hernoemd worden. De requestlogger schrijft methode, API-route, status en grootte; log geen querystring, pad, body, token of cookies.
+De server weigert absolute paden, `..`, paden buiten de ingestelde root, symbolische links en niet-reguliere bestandstypen. De share-root zelf mag niet verwijderd of hernoemd worden. De requestlogger schrijft client-IP, methode, API-route, status en grootte; querystrings met bestandspaden, bodies, tokens en cookies worden niet gelogd.
 
 ### Windows-client
 
@@ -114,7 +114,7 @@ dotnet publish client/UGREENRemoteDrive/UGREENRemoteDrive.csproj -c Release -r w
 
 De publicatie-output staat in `client/UGREENRemoteDrive/bin/` en hoort niet in Git. Een Docker CLI was niet beschikbaar in de oorspronkelijke ontwikkelomgeving; containerbuild/deploy is dus niet lokaal gevalideerd.
 
-## Nasale test en voortzetting
+## NAS-test en voortzetting
 
 Voordat een volgende agent iets op de NAS installeert of draait, laat die de eigenaar expliciet bevestigen welk geïsoleerd testpad gebruikt mag worden. Een NAS-deployment wijzigt de NAS-configuratie en geeft nieuwe code read/write-toegang tot een gemounte map. Gebruik eerst een lege, aparte testmap en voer bestandstests uitsluitend daar uit. Mount geen productieshare totdat de eigenaar de exacte share en gewenste toegang heeft bevestigd.
 
