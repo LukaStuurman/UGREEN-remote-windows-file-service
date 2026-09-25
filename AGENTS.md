@@ -15,7 +15,8 @@ De eerste implementatie staat op `main` in commit `456fe4d` (`feat: add UGREENli
 - Windows-client `dotnet build` en self-contained `win-x64` publish: geslaagd, 0 buildfouten.
 - Windows-clienttests voor SMB-sharevalidatie: 2 tests geslaagd (laatste uitvoering op 2026-09-25).
 - Read-only LAN-check: de bestaande Windows-koppeling `Z:` verwijst naar Techbase en de share-root is bereikbaar. Er zijn geen mapinhouden opgesomd; dit bewijst nog niet dat de clientmount of automatische SMB/remote-omschakeling werkt.
-- GitHub Actions-run `36153591944` op commit `c578a5f` is geslaagd voor servertests, Techbase-Compose-controle, geïsoleerde container-smoketest, Windows-build en Windows-tests.
+- GitHub Actions-run `36155880617` op commit `82e16dd` is geslaagd voor servertests, Techbase-Compose-controle, geïsoleerde container-smoketest en Windows-build/tests. De workflow maakte een Windows ZIP-artifact; de releasestap is overgeslagen omdat dit een push naar `main` was zonder release-tag.
+- De huidige server-versie is `0.1.1`; remote append writes met `offset=-1` zijn geïmplementeerd en lokaal getest. De API weigert nog steeds offsets kleiner dan `-1`.
 - De client is nog niet interactief gestart of met een echte Dokany-drive getest.
 - De officiële Dokany-driver is niet op Windows geïnstalleerd.
 - De gebruiker heeft bevestigd dat alleen de gedeelde map `Techbase` toegankelijk mag zijn. Het hostpad is read-only geverifieerd via UGOS Files > Techbase > Properties > Location; bewaar of commit het gebruiker-specifieke pad niet en verifieer het opnieuw vlak voor deployment.
