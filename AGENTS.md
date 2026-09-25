@@ -18,7 +18,8 @@ De eerste implementatie staat op `main` in commit `456fe4d` (`feat: add UGREENli
 - De gebruiker heeft bevestigd dat alleen de gedeelde map `Techbase` toegankelijk mag zijn. Het exacte hostpad van die share is nog niet geverifieerd; ga niet uit van `/volume1/Techbase` zonder controle in UGOS.
 - De container is niet op de UGREEN NAS gedeployed. Er is geen NAS-pad gemount, token aangemaakt of containerproject gewijzigd.
 - De UGREENlink-desktopshortcut voor deze container, de toegang tot de loopback-hostpoort via de shortcut en de volledige remote bestandsstroom zijn dus onbevestigd.
-- Een geïsoleerde NAS-test is voorgesteld, maar wacht op expliciete toestemming van de eigenaar en een bevestigd testpad. Behandel eerdere algemene implementatie-instructies niet als toestemming om nu de container uit te rollen.
+- De exacte Techbase-hostpad en expliciete actiebevestiging voor deployment/schrijftests ontbreken nog.
+- Er bestaan nog geen GitHub Releases. Maak geen werkende/stable release voordat de LAN-SMB- en remote-UGREENlink-stromen met alleen Techbase end-to-end zijn gevalideerd.
 
 Vermeld voortaan duidelijk welke resultaten lokaal zijn getest en welke op de NAS zijn getest. Claim geen werkende remote mount voordat die end-to-end is geverifieerd.
 
@@ -55,7 +56,7 @@ Windows Explorer
 - `server/app.py` is een Python-standaardbibliotheek-HTTP-server. `server/Dockerfile` bouwt de image.
 - De container luistert intern op `0.0.0.0:8080`; Compose publiceert alleen `127.0.0.1:18765:8080` op de NAS-host.
 - Alleen het hostpad van de gedeelde map `Techbase` mag als `/data` worden gemount. Het is een read/write-mount omdat Explorer bestanden en mappen moet kunnen wijzigen. Verifieer het exacte hostpad in UGOS; mount nooit `/volume1`, een parentmap of een andere share.
-- De NAS Compose-configuratie staat in `docker-compose.ugreen.yaml` en bouwt vanaf `main` van deze GitHub-repo. De lokale ontwikkelconfiguratie staat in `docker-compose.yaml`.
+- De NAS Compose-configuratie staat in `docker-compose.ugreen.yaml`; `UGREEN_DRIVE_REF` kiest de branch/tag van de GitHub-buildcontext en image-tag. Gebruik voor een release de bijbehorende geteste tag; de standaard `main` is alleen voor development. De lokale ontwikkelconfiguratie staat in `docker-compose.yaml`.
 - De container gebruikt de ingestelde `PUID:PGID` (standaard in Compose `1000:10`), read-only root filesystem, tijdelijke `/tmp`, geen Linux-capabilities, `no-new-privileges`, en CPU-/procesbeperkingen.
 - `UGREEN_DRIVE_TOKEN` moet minstens 32 tekens zijn. Genereer een cryptografisch willekeurig token en sla het alleen op in de NAS-projectconfiguratie en de Windows-client. Commit, log of post het token nooit.
 - De API weigert te starten als token of `DATA_ROOT` ongeldig is. Autorisatie wordt met `hmac.compare_digest` gecontroleerd.
@@ -113,7 +114,13 @@ dotnet build client/UGREENRemoteDrive.sln -c Release
 dotnet publish client/UGREENRemoteDrive/UGREENRemoteDrive.csproj -c Release -r win-x64 --self-contained true
 ```
 
-De publicatie-output staat in `client/UGREENRemoteDrive/bin/` en hoort niet in Git. Een Docker CLI was niet beschikbaar in de oorspronkelijke ontwikkelomgeving; containerbuild/deploy is dus niet lokaal gevalideerd.
+De publicatie-output staat in `client/UGREENRemoteDrive/bin/` en hoort niet in Git. Een Docker CLI was niet beschikbaar in de oorspronkelijke ontwikkelomgeving; containerbuild/deploy moet door GitHub Actions en later de echte NAS-test worden gevalideerd.
+
+## GitHub CI en releases
+
+`.github/workflows/ci-release.yml` voert bij pull requests en pushes naar `main` drie controles uit: de servertests op Linux, een containerbuild en health/auth-smoketest met een wegwerpmap op een GitHub-runner, en de Windows-clientbuild op Windows. Een push van een tag met prefix `v` voert dezelfde controles uit, publiceert daarna een self-contained Windows ZIP en SHA-256-bestand als GitHub Release-assets, en laat GitHub source archives van de getagde commit aanbieden.
+
+`RELEASING.md` bevat het vrijgaveproces. Release-tags zijn pas toegestaan nadat de Techbase-only NAS-tests, SMB op LAN, UGREENlink remote toegang en basisbestandsbewerkingen zijn geslaagd. CI-smoketests zijn geen bewijs van echte NAS-integratie.
 
 ## NAS-test en voortzetting
 

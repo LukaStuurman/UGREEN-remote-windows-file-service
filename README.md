@@ -15,7 +15,8 @@ The Windows client opens UGREENlink in its own WebView2 window so the user can s
 
 1. In the UGREEN Docker app, create a project named `ugreen-remote-drive` and paste `docker-compose.ugreen.yaml` into the Compose editor.
 2. Set `DATA_PATH` to the exact NAS host path of the existing shared folder named `Techbase`. Verify the path in UGOS first; do not assume it is `/volume1/Techbase`. Set `PUID` and `PGID` to a NAS account that has read/write permission for `Techbase`. Never mount `/volume1`, a parent folder, or another share.
-3. Generate a random token with at least 32 characters and set `UGREEN_DRIVE_TOKEN` to it. In PowerShell, this prints a cryptographically random token:
+3. Set `UGREEN_DRIVE_REF` to the exact GitHub release tag you intend to run. Use `main` only for an explicitly identified development test; release tags make NAS deployments reproducible.
+4. Generate a random token with at least 32 characters and set `UGREEN_DRIVE_TOKEN` to it. In PowerShell, this prints a cryptographically random token:
 
    ```powershell
    $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
@@ -26,8 +27,8 @@ The Windows client opens UGREENlink in its own WebView2 window so the user can s
    ```
 
    The token is stored in the Docker project configuration; do not commit it or post it publicly.
-4. Deploy the Docker project. The service binds to NAS loopback port `18765`; it does not publish the API port on the LAN interface.
-5. In Docker > Container, open the `ugreen-remote-drive` menu and create a desktop shortcut for port `18765`. Sign in to UGOS via UGREENlink and open the shortcut once. Copy the resulting `https://...ugapp.link/` address into the Windows client.
+5. Deploy the Docker project. The service binds to NAS loopback port `18765`; it does not publish the API port on the LAN interface.
+6. In Docker > Container, open the `ugreen-remote-drive` menu and create a desktop shortcut for port `18765`. Sign in to UGOS via UGREENlink and open the shortcut once. Copy the resulting `https://...ugapp.link/` address into the Windows client.
 
 UGREENlink protects remote browser access to the shortcut. The API also requires the bearer token, including for a direct request to the container port. The client uses the authenticated browser context for remote API requests and never reads or exports UGREENlink cookies.
 
@@ -39,6 +40,14 @@ UGREENlink protects remote browser access to the shortcut. The API also requires
 4. Select **Mount**. When the SMB path is reachable, it is the active backend; otherwise the client uses the remote API through UGREENlink. The drive letter stays mounted while the client runs and can be started automatically when Windows signs in.
 
 The SMB path uses the Windows user's existing SMB authentication. The app does not store SMB credentials.
+
+## GitHub checks and releases
+
+The GitHub Actions workflow in `.github/workflows/ci-release.yml` runs the Python API tests, builds and smoke-tests the Docker image using an isolated temporary share on a GitHub runner, and builds the Windows client on pushes to `main` and pull requests.
+
+After the Techbase-only NAS integration has passed, push an annotated `vMAJOR.MINOR.PATCH` tag. The workflow repeats those checks, creates a self-contained Windows ZIP with the README and a SHA-256 checksum, and publishes those assets as a GitHub Release with generated notes. GitHub also provides source archives for the tagged source. The release ZIP still requires the official Dokany driver and Microsoft Edge WebView2 Runtime on Windows.
+
+See `RELEASING.md` for the release checklist. A green GitHub workflow validates builds and isolated container behavior; it does not replace tests against the actual NAS, UGREENlink shortcut, or Techbase share.
 
 ## Supported file operations
 
@@ -74,4 +83,4 @@ The Dokany driver is intentionally not installed by the build. Install it from t
 
 Client configuration and its dedicated WebView profile live in `%LOCALAPPDATA%\UGREEN Remote Drive`. The token is DPAPI-encrypted for the current Windows user. Logs are written under `%LOCALAPPDATA%\UGREEN Remote Drive\logs`; the client does not log file names, request bodies, tokens, or cookies.
 
-The server logs method, API route, status and byte count only. It does not log query strings, file paths, or authorization headers.
+The server logs client IP, method, API route, status and byte count. It does not log query strings containing file paths, request bodies, or authorization headers.

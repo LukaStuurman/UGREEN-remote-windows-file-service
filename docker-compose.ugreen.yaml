@@ -1,8 +1,8 @@
 services:
   ugreen-remote-drive:
     build:
-      context: https://github.com/LukaStuurman/UGREEN-remote-windows-file-service.git#main:server
-    image: ugreen-remote-windows-file-service:0.1.0
+      context: https://github.com/LukaStuurman/UGREEN-remote-windows-file-service.git#${UGREEN_DRIVE_REF:-main}:server
+    image: ugreen-remote-windows-file-service:${UGREEN_DRIVE_REF:-main}
     container_name: ugreen-remote-drive
     restart: unless-stopped
     user: "${PUID:-1000}:${PGID:-10}"

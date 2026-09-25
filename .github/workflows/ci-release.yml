@@ -1,0 +1,161 @@
+name: CI and release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  server-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Run API tests
+        working-directory: server
+        run: python -m unittest discover -s tests -v
+      - name: Check Python syntax
+        working-directory: server
+        run: python -m py_compile app.py tests/test_app.py
+
+  container-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate NAS Compose configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          export DATA_PATH=/tmp/Techbase
+          export UGREEN_DRIVE_REF=main
+          export UGREEN_DRIVE_TOKEN="$(openssl rand -hex 32)"
+          export PUID=1000
+          export PGID=10
+          docker compose -f docker-compose.ugreen.yaml config --quiet
+      - name: Build and smoke-test isolated container
+        shell: bash
+        run: |
+          set -euo pipefail
+          image='ugreen-remote-drive:ci'
+          container='ugreen-remote-drive-smoke'
+          share="$RUNNER_TEMP/Techbase"
+          token="$(openssl rand -hex 32)"
+          echo "::add-mask::$token"
+          mkdir -p "$share"
+          cleanup() {
+            docker rm --force "$container" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          docker build --tag "$image" ./server
+          docker run --detach \
+            --name "$container" \
+            --user "$(id -u):$(id -g)" \
+            --read-only \
+            --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+            --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            --pids-limit 64 \
+            --memory 256m \
+            --publish 127.0.0.1:18765:8080 \
+            --env "UGREEN_DRIVE_TOKEN=$token" \
+            --volume "$share:/data:rw" \
+            "$image"
+
+          health_url='http://127.0.0.1:18765/api/v1/health'
+          list_url='http://127.0.0.1:18765/api/v1/list'
+          healthy=0
+          for _ in $(seq 1 30); do
+            if curl --fail --silent "$health_url" >/dev/null; then
+              healthy=1
+              break
+            fi
+            sleep 1
+          done
+          test "$healthy" = 1
+
+          unauthorized="$(curl --silent --output /dev/null --write-out '%{http_code}' "$list_url")"
+          test "$unauthorized" = '401'
+          curl --fail --silent --show-error \
+            --header "Authorization: Bearer $token" \
+            "$list_url" | python -c 'import json, sys; assert json.load(sys.stdin) == []'
+
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v6.0.0
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore Windows client
+        run: dotnet restore client/UGREENRemoteDrive.sln
+      - name: Build Windows client
+        run: dotnet build client/UGREENRemoteDrive.sln -c Release --no-restore
+      - name: Publish and package Windows client
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $publish = Join-Path $env:RUNNER_TEMP 'UGREENRemoteDrive'
+          $archive = Join-Path $env:RUNNER_TEMP 'UGREENRemoteDrive-win-x64.zip'
+          dotnet restore client/UGREENRemoteDrive/UGREENRemoteDrive.csproj -r win-x64
+          dotnet publish client/UGREENRemoteDrive/UGREENRemoteDrive.csproj `
+            -c Release -r win-x64 --self-contained true --no-restore --output $publish
+          Copy-Item README.md -Destination (Join-Path $publish 'README.md')
+          Compress-Archive -Path (Join-Path $publish '*') -DestinationPath $archive
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  UGREENRemoteDrive-win-x64.zip" |
+            Set-Content -NoNewline -Encoding ascii "$archive.sha256"
+      - name: Upload release files
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: UGREENRemoteDrive-win-x64
+          path: |
+            ${{ runner.temp }}/UGREENRemoteDrive-win-x64.zip
+            ${{ runner.temp }}/UGREENRemoteDrive-win-x64.zip.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - server-tests
+      - container-smoke
+      - windows-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Windows release files
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: UGREENRemoteDrive-win-x64
+          path: dist
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/UGREENRemoteDrive-win-x64.zip \
+            dist/UGREENRemoteDrive-win-x64.zip.sha256 \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "UGREEN Remote Drive $GITHUB_REF_NAME" \
+            --generate-notes
