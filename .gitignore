@@ -1,0 +1,10 @@
+.vs/
+.idea/
+bin/
+obj/
+__pycache__/
+*.py[cod]
+.env
+*.user
+*.suo
+*.log

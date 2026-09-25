@@ -1,0 +1,25 @@
+services:
+  ugreen-remote-drive:
+    build:
+      context: ./server
+    image: ugreen-remote-windows-file-service:0.1.0
+    container_name: ugreen-remote-drive
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-10}"
+    environment:
+      DATA_ROOT: /data
+      PORT: "8080"
+      UGREEN_DRIVE_TOKEN: "${UGREEN_DRIVE_TOKEN:?Set a random token of at least 32 characters}"
+    ports:
+      - "127.0.0.1:18765:8080"
+    volumes:
+      - "${DATA_PATH:?Set the absolute path of one NAS share}:/data:rw"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 256m
