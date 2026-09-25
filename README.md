@@ -1,6 +1,6 @@
 # UGREEN Remote Windows File Service
 
-Mount one UGREEN NAS share as a fixed Windows drive letter. On the home network, the client prefers the configured SMB share. Away from home, it uses a small API service in a Docker container reached through a UGREENlink desktop shortcut (`*.ugapp.link`).
+Mount only the UGREEN NAS shared folder named `Techbase` as a fixed Windows drive letter. On the home network, the client prefers the `Techbase` SMB share. Away from home, it uses a small API service in a Docker container reached through a UGREENlink desktop shortcut (`*.ugapp.link`).
 
 The Windows client opens UGREENlink in its own WebView2 window so the user can sign in with the normal UGREENlink login. It does not copy browser cookies or store the NAS account password. File API requests include a separate bearer token configured by the NAS administrator; Windows protects that token with DPAPI for the current Windows user.
 
@@ -14,7 +14,7 @@ The Windows client opens UGREENlink in its own WebView2 window so the user can s
 ## NAS setup
 
 1. In the UGREEN Docker app, create a project named `ugreen-remote-drive` and paste `docker-compose.ugreen.yaml` into the Compose editor.
-2. Set `DATA_PATH` to exactly one existing shared-folder path, such as `/volume1/YourShare`. Set `PUID` and `PGID` to a NAS account that has read/write permission for that share. Do not mount `/volume1` or a parent containing unrelated shares.
+2. Set `DATA_PATH` to the exact NAS host path of the existing shared folder named `Techbase`. Verify the path in UGOS first; do not assume it is `/volume1/Techbase`. Set `PUID` and `PGID` to a NAS account that has read/write permission for `Techbase`. Never mount `/volume1`, a parent folder, or another share.
 3. Generate a random token with at least 32 characters and set `UGREEN_DRIVE_TOKEN` to it. In PowerShell, this prints a cryptographically random token:
 
    ```powershell
@@ -34,7 +34,7 @@ UGREENlink protects remote browser access to the shortcut. The API also requires
 ## Windows setup
 
 1. Install the official Dokany 2.3 runtime once; its Windows filesystem driver is required for a drive letter.
-2. Start `UGREENRemoteDrive.exe` and enter the container's `ugapp.link` shortcut URL, the token from the NAS Docker project, an optional SMB path such as `\\NASNAME\Share`, and a drive letter such as `U:`.
+2. Start `UGREENRemoteDrive.exe` and enter the container's `ugapp.link` shortcut URL, the token from the NAS Docker project, the SMB path for `Techbase` (for example `\\NASNAME\Techbase`), and a drive letter such as `U:`.
 3. Select **Sign in / Connect** and complete the UGREENlink sign-in in the embedded WebView. The client keeps a separate WebView2 profile for that Windows user.
 4. Select **Mount**. When the SMB path is reachable, it is the active backend; otherwise the client uses the remote API through UGREENlink. The drive letter stays mounted while the client runs and can be started automatically when Windows signs in.
 
@@ -47,7 +47,7 @@ Directory listing and metadata, read, create, write by byte range, truncate, mak
 ## Security and limits
 
 - Use a random bearer token of at least 32 characters. Rotate it by changing the Docker project value and the client configuration.
-- Keep the Docker volume limited to one intended share. The mount is read/write because Explorer needs to create, rename, and delete files.
+- Keep the Docker volume limited to the `Techbase` share. The mount is read/write because Explorer needs to create, rename, and delete files.
 - The container runs as a non-root UID/GID, with a read-only image filesystem, no added Linux capabilities, and no-new-privileges.
 - The Docker host port is bound to `127.0.0.1`; use the UGREENlink shortcut for remote access and SMB for LAN access.
 - The client uses WebView2's own sign-in storage and DPAPI for its bearer token. The token is only sent to the configured `ugapp.link` origin.

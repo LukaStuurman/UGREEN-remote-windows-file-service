@@ -13,7 +13,7 @@ services:
     ports:
       - "127.0.0.1:18765:8080"
     volumes:
-      - "${DATA_PATH:?Set the absolute path of one NAS share}:/data:rw"
+      - "${DATA_PATH:?Set the verified host path of the Techbase NAS share}:/data:rw"
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=16m

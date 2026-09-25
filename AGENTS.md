@@ -2,7 +2,7 @@
 
 ## Doel en overdracht
 
-Deze repository bouwt een Windows Explorer-schijf voor één UGREEN NAS-share. Op het thuisnetwerk moet de client de geconfigureerde SMB-share gebruiken. Buiten het LAN gebruikt de client een eigen API-container op de NAS, bereikbaar via een UGREENlink Docker-desktopshortcut met een `*.ugapp.link`-adres.
+Deze repository bouwt een Windows Explorer-schijf voor uitsluitend de UGREEN NAS-share met de naam `Techbase`. Op het thuisnetwerk moet de client de SMB-share `Techbase` gebruiken. Buiten het LAN gebruikt de client een eigen API-container op de NAS, bereikbaar via een UGREENlink Docker-desktopshortcut met een `*.ugapp.link`-adres.
 
 Lees voor gebruikersgerichte installatie- en configuratiestappen ook [README.md](README.md). Dit bestand is de technische gids en overdracht voor agents die de implementatie voortzetten.
 
@@ -15,6 +15,7 @@ De eerste implementatie staat op `main` in commit `456fe4d` (`feat: add UGREENli
 - Windows-client `dotnet build` en self-contained `win-x64` publish: geslaagd, 0 buildfouten.
 - De client is nog niet interactief gestart of met een echte Dokany-drive getest.
 - De officiële Dokany-driver is niet op Windows geïnstalleerd.
+- De gebruiker heeft bevestigd dat alleen de gedeelde map `Techbase` toegankelijk mag zijn. Het exacte hostpad van die share is nog niet geverifieerd; ga niet uit van `/volume1/Techbase` zonder controle in UGOS.
 - De container is niet op de UGREEN NAS gedeployed. Er is geen NAS-pad gemount, token aangemaakt of containerproject gewijzigd.
 - De UGREENlink-desktopshortcut voor deze container, de toegang tot de loopback-hostpoort via de shortcut en de volledige remote bestandsstroom zijn dus onbevestigd.
 - Een geïsoleerde NAS-test is voorgesteld, maar wacht op expliciete toestemming van de eigenaar en een bevestigd testpad. Behandel eerdere algemene implementatie-instructies niet als toestemming om nu de container uit te rollen.
@@ -53,7 +54,7 @@ Windows Explorer
 
 - `server/app.py` is een Python-standaardbibliotheek-HTTP-server. `server/Dockerfile` bouwt de image.
 - De container luistert intern op `0.0.0.0:8080`; Compose publiceert alleen `127.0.0.1:18765:8080` op de NAS-host.
-- Alleen `DATA_PATH` wordt als `/data` gemount. Het is een read/write-mount omdat Explorer bestanden en mappen moet kunnen wijzigen. Mount nooit `/volume1` of een bovenliggende map met andere shares.
+- Alleen het hostpad van de gedeelde map `Techbase` mag als `/data` worden gemount. Het is een read/write-mount omdat Explorer bestanden en mappen moet kunnen wijzigen. Verifieer het exacte hostpad in UGOS; mount nooit `/volume1`, een parentmap of een andere share.
 - De NAS Compose-configuratie staat in `docker-compose.ugreen.yaml` en bouwt vanaf `main` van deze GitHub-repo. De lokale ontwikkelconfiguratie staat in `docker-compose.yaml`.
 - De container gebruikt de ingestelde `PUID:PGID` (standaard in Compose `1000:10`), read-only root filesystem, tijdelijke `/tmp`, geen Linux-capabilities, `no-new-privileges`, en CPU-/procesbeperkingen.
 - `UGREEN_DRIVE_TOKEN` moet minstens 32 tekens zijn. Genereer een cryptografisch willekeurig token en sla het alleen op in de NAS-projectconfiguratie en de Windows-client. Commit, log of post het token nooit.
@@ -116,14 +117,16 @@ De publicatie-output staat in `client/UGREENRemoteDrive/bin/` en hoort niet in G
 
 ## NAS-test en voortzetting
 
-Voordat een volgende agent iets op de NAS installeert of draait, laat die de eigenaar expliciet bevestigen welk geïsoleerd testpad gebruikt mag worden. Een NAS-deployment wijzigt de NAS-configuratie en geeft nieuwe code read/write-toegang tot een gemounte map. Gebruik eerst een lege, aparte testmap en voer bestandstests uitsluitend daar uit. Mount geen productieshare totdat de eigenaar de exacte share en gewenste toegang heeft bevestigd.
+De enige toegestane share voor deze toepassing is `Techbase`. De gebruiker heeft deze datascope bevestigd, maar deployment en schrijftests op de NAS zijn nog niet goedgekeurd of uitgevoerd. Een NAS-deployment wijzigt de NAS-configuratie en geeft nieuwe code read/write-toegang tot de volledige gemounte share. Controleer eerst read-only het exacte UGOS-hostpad dat bij `Techbase` hoort; raad het pad niet. Vraag direct vóór deployment expliciete toestemming en bevestig dat alleen `Techbase` wordt gemount.
+
+Voer na goedkeuring eventuele schrijftests uit in een nieuw, duidelijk benoemd tijdelijk submapje binnen `Techbase`; mount geen tweede testshare. Vraag toestemming voor het aanmaken van die tijdelijke map/bestanden en verwijder alleen de testitems die deze test zelf heeft aangemaakt. Lees of toon geen bestaande bestandsnamen of inhoud buiten wat strikt nodig is om de verbinding te verifiëren.
 
 Bij goedgekeurde test:
 
-1. Controleer de Docker-projectvelden, NAS UID/GID-rechten en dat het opgegeven testpad exact de bedoelde lege map is.
+1. Controleer de Docker-projectvelden, NAS UID/GID-rechten en dat `DATA_PATH` exact het geverifieerde hostpad van de gedeelde map `Techbase` is.
 2. Genereer een nieuw token lokaal/veilig; plaats het niet in GitHub, logs of chat.
-3. Deploy `docker-compose.ugreen.yaml` met uitsluitend die testmap als `DATA_PATH`.
-4. Controleer health, maak via de API een benoemd tijdelijk testbestand in de testmap, lees/schrijf/hernoem/verwijder het en controleer daarna dat de map leeg is.
+3. Deploy `docker-compose.ugreen.yaml` met uitsluitend de Techbase-share als `DATA_PATH`.
+4. Na expliciete toestemming, maak een tijdelijk submapje en benoemd testbestand binnen `Techbase`; test lezen/schrijven/hernoemen/verwijderen en verwijder alleen die eigen testitems.
 5. Maak in UGREEN Docker een desktopshortcut voor poort `18765`; noteer de nieuw gegenereerde URL alleen in de lokale Windows-clientconfiguratie, niet in deze repo.
 6. Als shortcut-proxy of HTTPS same-origin fetch faalt, stop daar en onderzoek de oorzaak. Breid de hostbinding of de toegankelijke NAS-map niet uit zonder nieuwe toestemming.
 7. Test daarna op Windows eerst de remote API zonder Dokany-mount. Installeer de officiële driver en mount pas na afzonderlijke afstemming als dat nog nodig is; documenteer elk gewijzigd NAS-/Windows-item en verwijder uitsluitend de expliciet aangemaakte tijdelijke testbestanden.
@@ -140,7 +143,7 @@ Een veilige test moet expliciet rapporteren: NAS-containerstatus, health-resulta
 
 - Inspecteer eerst `git status`, `README.md`, dit bestand en de relevante code. Behoud de bestaande repositorystructuur.
 - Houd wijzigingen klein, benoem expliciet aannames en actualiseer README of dit bestand als gedrag, configuratie of teststatus verandert.
-- Behoud de security-invarianten: één expliciet gemounte share, loopback-hostbinding, sterk bearer-token, HTTPS- en same-origin-validatie, geen cookie-export, DPAPI-tokenopslag, geen gevoelige logs.
+- Behoud de security-invarianten: uitsluitend de gedeelde map `Techbase` expliciet mounten, loopback-hostbinding, sterk bearer-token, HTTPS- en same-origin-validatie, geen cookie-export, DPAPI-tokenopslag, geen gevoelige logs.
 - Hardcode geen NAS-ID, UGREENlink-URL, account, sharepad, token of gebruiker-specifieke waarde.
 - Voer geen destructieve of productie-NAS-acties uit. Vraag concrete bevestiging voordat je nieuwe code op de NAS draait, een andere map mount, een driver installeert of de netwerkblootstelling verruimt.
 - Rapporteer lokale tests afzonderlijk van echte NAS-integratietests. Noem openstaande onzekerheden expliciet.
