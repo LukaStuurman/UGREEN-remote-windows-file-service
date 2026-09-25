@@ -47,14 +47,15 @@ jobs:
           export PUID=1000
           export PGID=10
           config="$(docker compose -f docker-compose.ugreen.yaml config --format json)"
+          printf '%s' "$config" | jq '{volumes: .services["ugreen-remote-drive"].volumes, techbaseHostPath: .services["ugreen-remote-drive"].environment.TECHBASE_HOST_PATH}'
           printf '%s' "$config" | jq -e '
-            (.services["ugreen-remote-drive"].volumes | length == 1) and
-            (.services["ugreen-remote-drive"].volumes[0].source == "/tmp/Techbase") and
-            (.services["ugreen-remote-drive"].volumes[0].target == "/data") and
-            (.services["ugreen-remote-drive"].volumes[0].bind.create_host_path == false)
+            (.services["ugreen-remote-drive"].volumes | length == 1)
           ' >/dev/null
           printf '%s' "$config" | jq -e '
-            .services["ugreen-remote-drive"].environment.TECHBASE_HOST_PATH == "/tmp/Techbase"
+            (.services["ugreen-remote-drive"].volumes[0].source == "/tmp/Techbase") and
+            (.services["ugreen-remote-drive"].volumes[0].target == "/data") and
+            (.services["ugreen-remote-drive"].volumes[0].bind.create_host_path == false) and
+            (.services["ugreen-remote-drive"].environment.TECHBASE_HOST_PATH == "/tmp/Techbase")
           ' >/dev/null
       - name: Build and smoke-test isolated container
         shell: bash
