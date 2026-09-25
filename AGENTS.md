@@ -20,7 +20,7 @@ De eerste implementatie staat op `main` in commit `456fe4d` (`feat: add UGREENli
 - De container is niet op de UGREEN NAS gedeployed. Er is geen NAS-pad gemount, token aangemaakt of containerproject gewijzigd.
 - De UGREENlink-desktopshortcut voor deze container, de toegang tot de loopback-hostpoort via de shortcut en de volledige remote bestandsstroom zijn dus onbevestigd.
 - Expliciete actiebevestiging voor deployment en schrijftests ontbreekt nog. Deployment geeft nieuwe code read/write-toegang tot de volledige Techbase-share.
-- Er bestaan nog geen GitHub Releases. Maak geen werkende/stable release voordat de LAN-SMB- en remote-UGREENlink-stromen met alleen Techbase end-to-end zijn gevalideerd.
+- Er bestaat een GitHub prerelease `v0.1.0-preview.1` vanaf commit `69c8eba`; die is vóór de Techbase-only guardrails gepubliceerd en is niet NAS-getest. Gebruik die niet als bewezen werkende versie. Er is nog geen NAS-gevalideerde release.
 
 Vermeld voortaan duidelijk welke resultaten lokaal zijn getest en welke op de NAS zijn getest. Claim geen werkende remote mount voordat die end-to-end is geverifieerd.
 

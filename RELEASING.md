@@ -2,6 +2,8 @@
 
 This repository's GitHub Actions workflow validates and packages source tags that start with `v`. A GitHub Release is created only after the tagged revision passes the server tests, isolated container smoke test, and Windows build.
 
+The existing GitHub prerelease `v0.1.0-preview.1` points to commit `69c8eba`, before the Techbase-only path guards and without real NAS validation. Treat it as an early preview only; it is not evidence that remote UGREENlink access or mounting works. The next usable release must include the Techbase-only guards and pass the actual NAS and Windows integration checks below.
+
 ## Required checks before tagging
 
 Do not publish a stable release until the actual NAS path and UGREENlink route have been verified with the user-approved `Techbase` share only. Record results for:
