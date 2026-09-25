@@ -130,6 +130,12 @@ Bij goedgekeurde test:
 
 Een veilige test moet expliciet rapporteren: NAS-containerstatus, health-resultaat, shortcut-toegang, token-auth (geldige/ongeldige token), create/read/write/rename/delete, Windows-build, Dokany-status en wat niet getest kon worden.
 
+## Bronnen en upstream documentatie
+
+- [UGREEN Docker-handleiding voor een desktopshortcut naar een containerwebinterface](https://ai.ugreen.com/blogs/how-to/set-up-navidrome-on-nas). De UGOS-interface kan per versie afwijken; controleer de actuele UI voordat je de shortcut maakt.
+- [UGREEN login-authenticatie voor geïntegreerde UGOS-apps](https://developer.ugnas.com/doc/backend/system-capabilities/login-auth.html) en [UGREEN Docker-apps ontwikkelen](https://developer.ugnas.com/en/doc/backend/quick-start/develop-docker-app.html). Deze beschrijven de app-integratieroute; een gewone Compose-container erft die integratie niet vanzelf.
+- [Officiële Dokany 2.3.1.1000-release](https://github.com/dokan-dev/dokany/releases/tag/v2.3.1.1000) en [DokanNet 2.3.0.3-release](https://github.com/dokan-dev/dokan-dotnet/releases/tag/v2.3.0.3). Controleer compatibiliteit en release-informatie opnieuw voordat je een driver installeert.
+
 ## Werkwijze voor agents
 
 - Inspecteer eerst `git status`, `README.md`, dit bestand en de relevante code. Behoud de bestaande repositorystructuur.
