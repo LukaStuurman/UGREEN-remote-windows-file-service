@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace UGREENRemoteDrive;
 
@@ -19,6 +20,21 @@ internal interface IFileBackend
     void Delete(string path, bool directory);
     void SetModifiedTime(string path, DateTimeOffset modifiedUtc);
     DiskSpace GetSpace();
+}
+
+internal static class TechbaseSharePath
+{
+    private static readonly Regex UncRootPattern = new(
+        @"^\\\\[^\\/]+\\Techbase\\?$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    public static string ValidateUncRoot(string path)
+    {
+        var candidate = path.Trim();
+        if (!UncRootPattern.IsMatch(candidate))
+            throw new ArgumentException("Gebruik uitsluitend de SMB-share-root \\\\NASNAAM\\Techbase; andere shares of submappen zijn niet toegestaan.");
+        return candidate.TrimEnd('\\', '/');
+    }
 }
 
 internal sealed class RemoteBackend(RemoteBridge bridge) : IFileBackend
@@ -105,7 +121,7 @@ internal sealed class RemoteBackend(RemoteBridge bridge) : IFileBackend
 
 internal sealed class SmbBackend(string shareRoot) : IFileBackend
 {
-    private readonly string _root = Path.GetFullPath(shareRoot.TrimEnd('\\', '/'));
+    private readonly string _root = Path.GetFullPath(TechbaseSharePath.ValidateUncRoot(shareRoot));
 
     public bool CanReach() => Directory.Exists(_root);
 

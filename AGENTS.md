@@ -10,15 +10,16 @@ De eerste implementatie staat op `main` in commit `456fe4d` (`feat: add UGREENli
 
 ## Belangrijke status op 2026-09-25
 
-- Server-API-tests: 5 tests geslaagd.
+- Server-API-tests: 6 tests geslaagd (laatste uitvoering op 2026-09-25).
 - Python syntaxcontrole: geslaagd.
 - Windows-client `dotnet build` en self-contained `win-x64` publish: geslaagd, 0 buildfouten.
+- Windows-clienttests voor SMB-sharevalidatie: 2 tests geslaagd (laatste uitvoering op 2026-09-25).
 - De client is nog niet interactief gestart of met een echte Dokany-drive getest.
 - De officiële Dokany-driver is niet op Windows geïnstalleerd.
-- De gebruiker heeft bevestigd dat alleen de gedeelde map `Techbase` toegankelijk mag zijn. Het exacte hostpad van die share is nog niet geverifieerd; ga niet uit van `/volume1/Techbase` zonder controle in UGOS.
+- De gebruiker heeft bevestigd dat alleen de gedeelde map `Techbase` toegankelijk mag zijn. Het hostpad is read-only geverifieerd via UGOS Files > Techbase > Properties > Location; bewaar of commit het gebruiker-specifieke pad niet en verifieer het opnieuw vlak voor deployment.
 - De container is niet op de UGREEN NAS gedeployed. Er is geen NAS-pad gemount, token aangemaakt of containerproject gewijzigd.
 - De UGREENlink-desktopshortcut voor deze container, de toegang tot de loopback-hostpoort via de shortcut en de volledige remote bestandsstroom zijn dus onbevestigd.
-- De exacte Techbase-hostpad en expliciete actiebevestiging voor deployment/schrijftests ontbreken nog.
+- Expliciete actiebevestiging voor deployment en schrijftests ontbreekt nog. Deployment geeft nieuwe code read/write-toegang tot de volledige Techbase-share.
 - Er bestaan nog geen GitHub Releases. Maak geen werkende/stable release voordat de LAN-SMB- en remote-UGREENlink-stromen met alleen Techbase end-to-end zijn gevalideerd.
 
 Vermeld voortaan duidelijk welke resultaten lokaal zijn getest en welke op de NAS zijn getest. Claim geen werkende remote mount voordat die end-to-end is geverifieerd.
@@ -55,7 +56,7 @@ Windows Explorer
 
 - `server/app.py` is een Python-standaardbibliotheek-HTTP-server. `server/Dockerfile` bouwt de image.
 - De container luistert intern op `0.0.0.0:8080`; Compose publiceert alleen `127.0.0.1:18765:8080` op de NAS-host.
-- Alleen het hostpad van de gedeelde map `Techbase` mag als `/data` worden gemount. Het is een read/write-mount omdat Explorer bestanden en mappen moet kunnen wijzigen. Verifieer het exacte hostpad in UGOS; mount nooit `/volume1`, een parentmap of een andere share.
+- Alleen het hostpad van de gedeelde map `Techbase` mag als `/data` worden gemount. Het is een read/write-mount omdat Explorer bestanden en mappen moet kunnen wijzigen. Compose voorkomt het automatisch aanmaken van een ontbrekend bronpad en de server weigert hostpaden die niet absoluut zijn of niet eindigen op `Techbase`. Die naamcontrole bewijst niet dat een gelijknamige map echt de UGOS-share is; verifieer daarom het exacte pad in UGOS. Mount nooit `/volume1`, een parentmap of een andere share.
 - De NAS Compose-configuratie staat in `docker-compose.ugreen.yaml`; `UGREEN_DRIVE_REF` kiest de branch/tag van de GitHub-buildcontext en image-tag. Gebruik voor een release de bijbehorende geteste tag; de standaard `main` is alleen voor development. De lokale ontwikkelconfiguratie staat in `docker-compose.yaml`.
 - De container gebruikt de ingestelde `PUID:PGID` (standaard in Compose `1000:10`), read-only root filesystem, tijdelijke `/tmp`, geen Linux-capabilities, `no-new-privileges`, en CPU-/procesbeperkingen.
 - `UGREEN_DRIVE_TOKEN` moet minstens 32 tekens zijn. Genereer een cryptografisch willekeurig token en sla het alleen op in de NAS-projectconfiguratie en de Windows-client. Commit, log of post het token nooit.
@@ -88,7 +89,7 @@ De server weigert absolute paden, `..`, paden buiten de ingestelde root, symboli
 
 - `client/UGREENRemoteDrive/` is een WPF-app voor .NET 8 (`net8.0-windows`). Belangrijke onderdelen: `DriveFileSystem.cs` vertaalt Dokany-operaties; `StorageBackends.cs` implementeert SMB en remote API; `RemoteBridge.cs` koppelt Dokan-workerthreads aan de WebView2-browser; `DriveSettings.cs` bewaart instellingen en logt.
 - NuGet-referenties: DokanNet `2.3.0.3`, WebView2 `1.0.4191.47`, ProtectedData `8.0.0`. De officiële Dokany 2.3 runtime/driver moet apart geïnstalleerd worden om werkelijk te mounten.
-- De SMB-backend gebruikt de bestaande Windows SMB-identiteit en bewaart geen SMB-wachtwoord. De client controleert SMB periodiek; bereikbare SMB krijgt voorrang boven remote.
+- De SMB-backend gebruikt de bestaande Windows SMB-identiteit en bewaart geen SMB-wachtwoord. Configuratie en backend accepteren uitsluitend de UNC-share-root `\\server\Techbase`, zonder andere shares of submappen. De client controleert SMB periodiek; bereikbare SMB krijgt voorrang boven remote.
 - De statuscontrole loopt via een 5-seconden UI-timer; SMB-probes hebben een timeout van 2 seconden en remote-authenticatie wordt periodiek opnieuw geprobeerd. Een onderbroken lopende bestandsactie wordt niet gegarandeerd hervat: de app meldt de fout zodat die opnieuw kan worden uitgevoerd.
 - De client draait in het systeemvak. Optioneel kan Windows-aanmelding worden ingesteld via de current-user Run-registersleutel. Bij autostart kan de app zichtbaar worden als opnieuw aanmelden vereist is.
 - Configuratie en WebView2-profiel staan onder `%LOCALAPPDATA%\UGREEN Remote Drive`; logs staan in de submap `logs`. Het token in `config.json` is DPAPI-versleuteld voor de huidige Windows-gebruiker.
@@ -111,6 +112,7 @@ python -m unittest discover -s server/tests -v
 python -m py_compile server/app.py server/tests/test_app.py
 dotnet restore client/UGREENRemoteDrive.sln
 dotnet build client/UGREENRemoteDrive.sln -c Release
+dotnet test client/UGREENRemoteDrive.sln -c Release --no-build
 dotnet publish client/UGREENRemoteDrive/UGREENRemoteDrive.csproj -c Release -r win-x64 --self-contained true
 ```
 
@@ -124,7 +126,7 @@ De publicatie-output staat in `client/UGREENRemoteDrive/bin/` en hoort niet in G
 
 ## NAS-test en voortzetting
 
-De enige toegestane share voor deze toepassing is `Techbase`. De gebruiker heeft deze datascope bevestigd, maar deployment en schrijftests op de NAS zijn nog niet goedgekeurd of uitgevoerd. Een NAS-deployment wijzigt de NAS-configuratie en geeft nieuwe code read/write-toegang tot de volledige gemounte share. Controleer eerst read-only het exacte UGOS-hostpad dat bij `Techbase` hoort; raad het pad niet. Vraag direct vóór deployment expliciete toestemming en bevestig dat alleen `Techbase` wordt gemount.
+De enige toegestane share voor deze toepassing is `Techbase`. De gebruiker heeft deze datascope bevestigd, maar deployment en schrijftests op de NAS zijn nog niet goedgekeurd of uitgevoerd. Een NAS-deployment wijzigt de NAS-configuratie en geeft nieuwe code read/write-toegang tot de volledige gemounte share. Het hostpad is read-only in UGOS gecontroleerd; verifieer de `Location` opnieuw vlak vóór deployment en neem het pad niet op in Git of logs. Vraag direct vóór deployment expliciete toestemming en bevestig dat alleen `Techbase` wordt gemount.
 
 Voer na goedkeuring eventuele schrijftests uit in een nieuw, duidelijk benoemd tijdelijk submapje binnen `Techbase`; mount geen tweede testshare. Vraag toestemming voor het aanmaken van die tijdelijke map/bestanden en verwijder alleen de testitems die deze test zelf heeft aangemaakt. Lees of toon geen bestaande bestandsnamen of inhoud buiten wat strikt nodig is om de verbinding te verifiëren.
 
@@ -150,7 +152,7 @@ Een veilige test moet expliciet rapporteren: NAS-containerstatus, health-resulta
 
 - Inspecteer eerst `git status`, `README.md`, dit bestand en de relevante code. Behoud de bestaande repositorystructuur.
 - Houd wijzigingen klein, benoem expliciet aannames en actualiseer README of dit bestand als gedrag, configuratie of teststatus verandert.
-- Behoud de security-invarianten: uitsluitend de gedeelde map `Techbase` expliciet mounten, loopback-hostbinding, sterk bearer-token, HTTPS- en same-origin-validatie, geen cookie-export, DPAPI-tokenopslag, geen gevoelige logs.
+- Behoud de security-invarianten: uitsluitend de gedeelde map `Techbase` expliciet mounten en als enige SMB-share accepteren, loopback-hostbinding, sterk bearer-token, HTTPS- en same-origin-validatie, geen cookie-export, DPAPI-tokenopslag, geen gevoelige logs.
 - Hardcode geen NAS-ID, UGREENlink-URL, account, sharepad, token of gebruiker-specifieke waarde.
 - Voer geen destructieve of productie-NAS-acties uit. Vraag concrete bevestiging voordat je nieuwe code op de NAS draait, een andere map mount, een driver installeert of de netwerkblootstelling verruimt.
 - Rapporteer lokale tests afzonderlijk van echte NAS-integratietests. Noem openstaande onzekerheden expliciet.

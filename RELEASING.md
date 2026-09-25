@@ -12,6 +12,7 @@ Do not publish a stable release until the actual NAS path and UGREENlink route h
 - Listing, read, create, write, resize, rename, delete, and modification-time behavior.
 - SMB preference on LAN and backend switch/reconnect behavior.
 - Confirmation that no other NAS share or parent directory is mounted.
+- The Compose configuration has exactly one data bind mount, its target is `/data`, it refuses to create a missing host path, and both the server and Windows client reject non-Techbase share paths.
 - Windows client build and Dokany/WebView2 runtime requirements.
 
 The GitHub container smoke test uses a disposable empty directory on a hosted runner. It proves that the Docker image builds, the health endpoint responds, and the API enforces its token; it does not prove UGREENlink or NAS behavior.

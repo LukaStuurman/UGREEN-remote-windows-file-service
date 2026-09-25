@@ -253,8 +253,8 @@ public partial class MainWindow : Window
         if (!string.IsNullOrWhiteSpace(urlText) && token.Length < 32)
             throw new InvalidOperationException("Het toegangstoken moet minstens 32 tekens lang zijn.");
         var smbPath = SmbPathBox.Text.Trim();
-        if (!string.IsNullOrWhiteSpace(smbPath) && !smbPath.StartsWith("\\\\", StringComparison.Ordinal))
-            throw new InvalidOperationException("Gebruik voor SMB een UNC-pad, bijvoorbeeld \\\\NASNAAM\\Share.");
+        if (!string.IsNullOrWhiteSpace(smbPath))
+            _ = TechbaseSharePath.ValidateUncRoot(smbPath);
         var drive = DriveLetterBox.SelectedItem as string;
         if (string.IsNullOrWhiteSpace(drive)) throw new InvalidOperationException("Kies een driveletter.");
 

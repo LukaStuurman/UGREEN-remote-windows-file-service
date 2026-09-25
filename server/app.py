@@ -19,6 +19,7 @@ VERSION = "0.1.0"
 PORT = int(os.environ.get("PORT", "8080"))
 DATA_ROOT = Path(os.environ.get("DATA_ROOT", "/data")).resolve()
 ACCESS_TOKEN = os.environ.get("UGREEN_DRIVE_TOKEN", "")
+TECHBASE_HOST_PATH = os.environ.get("TECHBASE_HOST_PATH", "")
 MAX_BODY = 4 * 1024 * 1024
 MAX_RANGE = 4 * 1024 * 1024
 
@@ -28,6 +29,15 @@ class ApiError(Exception):
         super().__init__(message)
         self.status = status
         self.message = message
+
+
+def validate_techbase_host_path(raw: str) -> None:
+    """Fail closed unless the configured host bind source is the Techbase share path."""
+    if not raw or "\\" in raw or not os.path.isabs(raw):
+        raise ValueError("TECHBASE_HOST_PATH must be an absolute NAS host path.")
+    parts = raw.split("/")
+    if any(part == ".." for part in parts) or Path(raw).name != "Techbase":
+        raise ValueError("TECHBASE_HOST_PATH must point directly to the Techbase share.")
 
 
 def utc_iso(epoch: float) -> str:
@@ -377,6 +387,11 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> None:
     if len(ACCESS_TOKEN) < 32:
         print("UGREEN_DRIVE_TOKEN must contain at least 32 characters.", file=sys.stderr)
+        raise SystemExit(2)
+    try:
+        validate_techbase_host_path(TECHBASE_HOST_PATH)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
         raise SystemExit(2)
     if not DATA_ROOT.is_dir():
         print("DATA_ROOT must be an existing directory.", file=sys.stderr)

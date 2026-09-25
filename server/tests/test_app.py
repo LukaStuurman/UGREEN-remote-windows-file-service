@@ -97,6 +97,18 @@ class FileApiTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertNotIn(str(self.root), json.dumps(result))
 
+    def test_techbase_host_path_must_be_absolute_and_named_techbase(self):
+        for path in (
+            "relative/Techbase",
+            "/volume1/OtherShare",
+            "/volume1/techbase",
+            "/volume1/Techbase/../OtherShare",
+        ):
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                app.validate_techbase_host_path(path)
+
+        app.validate_techbase_host_path("/volume1/Techbase")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -38,8 +38,8 @@
                 <TextBlock x:Name="TokenHint" Text="Opgeslagen token blijft verborgen en wordt met DPAPI versleuteld." FontSize="11" Foreground="#666" Margin="0,3,0,0" />
             </StackPanel>
             <StackPanel Grid.Column="0" Grid.Row="1" Margin="0,0,10,0">
-                <TextBlock Text="SMB-share op je LAN (optioneel)" FontWeight="SemiBold" />
-                <TextBox x:Name="SmbPathBox" Height="30" Margin="0,4,0,0" VerticalContentAlignment="Center" ToolTip="Bijvoorbeeld \\NASNAAM\Share" />
+                <TextBlock Text="Techbase SMB-share op je LAN (optioneel)" FontWeight="SemiBold" />
+                <TextBox x:Name="SmbPathBox" Height="30" Margin="0,4,0,0" VerticalContentAlignment="Center" ToolTip="Alleen \\NASNAAM\Techbase" />
             </StackPanel>
             <StackPanel Grid.Column="1" Grid.Row="1" Orientation="Horizontal" Margin="10,0,0,0" VerticalAlignment="Bottom">
                 <StackPanel Width="100" Margin="0,0,12,0">
