@@ -2,7 +2,7 @@
 
 ## Doel en overdracht
 
-Deze repository bouwt een Windows Explorer-schijf voor uitsluitend de UGREEN NAS-share met de naam `Techbase`. Op het thuisnetwerk moet de client de SMB-share `Techbase` gebruiken. Buiten het LAN gebruikt de client een eigen API-container op de NAS, bereikbaar via een UGREENlink Docker-desktopshortcut met een `*.ugapp.link`-adres.
+Deze repository bouwt een Windows Explorer-schijf voor uitsluitend de UGREEN NAS-share met de naam `Techbase`. Op het thuisnetwerk moet de client de SMB-share `Techbase` gebruiken. Buiten het LAN gebruikt de client een eigen API-container op de NAS, bereikbaar via een UGREENlink Docker-desktopshortcut met een `*.ugapp.link`- of `*.ugdocker.link`-adres.
 
 Lees voor gebruikersgerichte installatie- en configuratiestappen ook [README.md](README.md). Dit bestand is de technische gids en overdracht voor agents die de implementatie voortzetten.
 
@@ -26,6 +26,12 @@ De eerste implementatie staat op `main` in commit `456fe4d` (`feat: add UGREENli
 - De UGREENlink-desktopshortcut voor deze container, de toegang tot de loopback-hostpoort via de shortcut en de volledige remote bestandsstroom zijn dus onbevestigd.
 - Expliciete actiebevestiging voor deployment en schrijftests ontbreekt nog. Deployment geeft nieuwe code read/write-toegang tot de volledige Techbase-share.
 - Er bestaat een GitHub prerelease `v0.1.0-preview.1` vanaf commit `69c8eba`; die is vóór de Techbase-only guardrails gepubliceerd en is niet NAS-getest. Gebruik die niet als bewezen werkende versie. Er is nog geen NAS-gevalideerde release.
+
+## Update op 2026-09-26
+
+- Op deze Windows-pc draait de geïnstalleerde client; de virtuele schijf `U:` is bereikbaar en de rootlijst gaf 4 items terug. De ingestelde shortcut gebruikt het UGREEN-domein `ugdocker.link`. Dit bevestigt mounten en directory-listing lokaal; er is in deze controle geen NAS-write-test uitgevoerd en bestaande bestandsnamen staan niet in dit document.
+- De Windows-configuratie is vereenvoudigd naar één actie die instellingen opslaat, UGREENlink opent en de schijf na aanmelding automatisch koppelt. SMB en een alternatieve schijfletter zijn optioneel.
+- Het API-toegangstoken blijft nodig voor bestandsrechten: UGREENlink-aanmelding opent de shortcut, maar autoriseert op zichzelf geen bestandsbewerkingen. Het token wordt alleen lokaal versleuteld opgeslagen.
 
 Vermeld voortaan duidelijk welke resultaten lokaal zijn getest en welke op de NAS zijn getest. Claim geen werkende remote mount voordat die end-to-end is geverifieerd.
 
@@ -51,8 +57,8 @@ Windows Explorer
 - De door de gebruiker gedeelde URL was een bestaande Media Hub-appshortcut. Gebruik die alleen als voorbeeld van het `ugapp.link`-mechanisme; hardcode of publiceer die persoonlijke URL niet. De eigen container krijgt na deployment een aparte UGREENlink Docker-desktopshortcut.
 - De UGREENlink-login gebeurt in de client in WebView2. API-calls worden als `fetch` vanuit die pagina gedaan, met `credentials: include`, zodat de browser zijn normale UGREENlink-sessie gebruikt.
 - De client leest, kopieert of exporteert geen UGREENlink-cookies en bewaart het NAS-wachtwoord niet. De WebView2-profielmap is lokaal voor deze app.
-- De API gebruikt daarnaast een aparte bearer-token. Het token wordt aan de toegestane `ugapp.link`-origin meegestuurd en lokaal door Windows DPAPI voor de huidige gebruiker versleuteld bewaard.
-- De bridge controleert HTTPS, het `.ugapp.link`-domein en dezelfde exacte origin voor de huidige pagina en API-doel-URL. Verruim deze controle niet naar willekeurige domeinen.
+- De API gebruikt daarnaast een aparte bearer-token. Het token wordt alleen aan de ingestelde UGREENlink-origin (`*.ugapp.link` of `*.ugdocker.link`) meegestuurd en lokaal door Windows DPAPI voor de huidige gebruiker versleuteld bewaard.
+- De bridge controleert HTTPS, uitsluitend `.ugapp.link` of `.ugdocker.link`, en dezelfde exacte origin voor de huidige pagina en API-doel-URL. Verruim deze controle niet naar willekeurige domeinen.
 - De UGREENlink-proxy moet de containershortcut op poort `18765` kunnen bereiken, hoewel de Docker-hostpoort op `127.0.0.1` gebonden is. Dit is nog niet op de NAS bewezen. Test dit expliciet.
 - Als de shortcut een loopback-hostbinding niet kan bereiken, wijzig de poortbinding niet stilzwijgend naar `0.0.0.0`. Beoordeel eerst de UGOS-proxyroute, firewall en veiligste minimale binding; vraag toestemming voordat de netwerkblootstelling wordt vergroot.
 - De officiële UGREEN app-integratieauthenticatie is niet automatisch beschikbaar voor een gewone Compose-container. Dit ontwerp gebruikt daarom UGREENlink voor de browser-login en een eigen API-token voor de bestandsservice.
@@ -127,7 +133,7 @@ De publicatie-output staat in `client/UGREENRemoteDrive/bin/` en hoort niet in G
 
 `.github/workflows/ci-release.yml` voert bij pull requests en pushes naar `main` drie controles uit: de servertests op Linux, een containerbuild en health/auth-smoketest met een wegwerpmap op een GitHub-runner, en de Windows-clientbuild op Windows. Een push van een tag met prefix `v` voert dezelfde controles uit, publiceert daarna een self-contained Windows ZIP en SHA-256-bestand als GitHub Release-assets, en laat GitHub source archives van de getagde commit aanbieden.
 
-`RELEASING.md` bevat het vrijgaveproces. Release-tags zijn pas toegestaan nadat de Techbase-only NAS-tests, SMB op LAN, UGREENlink remote toegang en basisbestandsbewerkingen zijn geslaagd. CI-smoketests zijn geen bewijs van echte NAS-integratie.
+`RELEASING.md` bevat het vrijgaveproces. Een stabiele release mag pas worden gepubliceerd nadat de Techbase-only NAS-tests, SMB op LAN, UGREENlink remote toegang en basisbestandsbewerkingen zijn geslaagd. Als integratie nog niet volledig is, gebruik uitsluitend een duidelijk herkenbare `-preview.N`-prerelease en claim geen NAS-validatie. CI-smoketests zijn geen bewijs van echte NAS-integratie.
 
 ## NAS-test en voortzetting
 

@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         mc:Ignorable="d"
-        Title="UGREEN Remote Drive" Height="850" Width="1000" MinHeight="700" MinWidth="820"
+        Title="UGREEN Remote Drive" Height="780" Width="900" MinHeight="680" MinWidth="760"
         WindowStartupLocation="CenterScreen">
     <Grid Margin="18">
         <Grid.RowDefinitions>
@@ -13,58 +13,73 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
-        <StackPanel Grid.Row="0" Margin="0,0,0,12">
+        <StackPanel Grid.Row="0" Margin="0,0,0,14">
             <TextBlock Text="UGREEN Remote Drive" FontSize="24" FontWeight="SemiBold" />
-            <TextBlock Text="Koppel via UGREENlink; thuis gebruikt de client automatisch SMB als dat beschikbaar is." Foreground="#555" Margin="0,4,0,0" />
+            <TextBlock Text="Eén klik koppelt alleen de Techbase-map als Windows-schijf U:." Foreground="#555" Margin="0,4,0,0" />
         </StackPanel>
-        <Grid Grid.Row="1" Margin="0,0,0,10">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
-            <StackPanel Grid.Column="0" Grid.Row="0" Margin="0,0,10,8">
-                <TextBlock Text="UGREENlink-appadres (ugapp.link)" FontWeight="SemiBold" />
-                <TextBox x:Name="RemoteUrlBox" Height="30" Margin="0,4,0,0" VerticalContentAlignment="Center" />
-            </StackPanel>
-            <StackPanel Grid.Column="1" Grid.Row="0" Margin="10,0,0,8">
-                <TextBlock Text="Toegangstoken" FontWeight="SemiBold" />
-                <PasswordBox x:Name="TokenBox" Height="30" Margin="0,4,0,0" VerticalContentAlignment="Center" />
-                <TextBlock x:Name="TokenHint" Text="Opgeslagen token blijft verborgen en wordt met DPAPI versleuteld." FontSize="11" Foreground="#666" Margin="0,3,0,0" />
-            </StackPanel>
-            <StackPanel Grid.Column="0" Grid.Row="1" Margin="0,0,10,0">
-                <TextBlock Text="Techbase SMB-share op je LAN (optioneel)" FontWeight="SemiBold" />
-                <TextBox x:Name="SmbPathBox" Height="30" Margin="0,4,0,0" VerticalContentAlignment="Center" ToolTip="Alleen \\NASNAAM\Techbase" />
-            </StackPanel>
-            <StackPanel Grid.Column="1" Grid.Row="1" Orientation="Horizontal" Margin="10,0,0,0" VerticalAlignment="Bottom">
-                <StackPanel Width="100" Margin="0,0,12,0">
-                    <TextBlock Text="Driveletter" FontWeight="SemiBold" />
+
+        <StackPanel Grid.Row="1" Margin="0,0,0,10">
+            <TextBlock Text="UGREENlink-adres van de NAS Docker-snelkoppeling" FontWeight="SemiBold" />
+            <TextBox x:Name="RemoteUrlBox" Height="32" Margin="0,4,0,0" VerticalContentAlignment="Center"
+                     ToolTip="Plak hier het HTTPS-adres van je UGREEN Docker-snelkoppeling." />
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Margin="0,0,0,10">
+            <TextBlock Text="Toegangscode van de NAS-service" FontWeight="SemiBold" />
+            <PasswordBox x:Name="TokenBox" Height="32" Margin="0,4,0,0" VerticalContentAlignment="Center" />
+            <TextBlock x:Name="TokenHint"
+                       Text="Eenmalig nodig om de Techbase-service te autoriseren; veilig versleuteld op deze pc bewaard."
+                       FontSize="11" Foreground="#666" Margin="0,3,0,0" TextWrapping="Wrap" />
+        </StackPanel>
+
+        <Expander Grid.Row="3" Header="Optioneel: LAN/SMB en andere schijfletter" Margin="0,0,0,12">
+            <Grid Margin="0,8,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="2*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Margin="0,0,14,0">
+                    <TextBlock Text="Techbase SMB-share (alleen thuis op het LAN)" FontWeight="SemiBold" />
+                    <TextBox x:Name="SmbPathBox" Height="30" Margin="0,4,0,0" VerticalContentAlignment="Center"
+                             ToolTip="Alleen de share-root, bijvoorbeeld \\NASNAAM\Techbase." />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Width="88" Margin="0,0,14,0">
+                    <TextBlock Text="Schijfletter" FontWeight="SemiBold" />
                     <ComboBox x:Name="DriveLetterBox" Height="30" Margin="0,4,0,0" />
                 </StackPanel>
-                <Button x:Name="SaveButton" Content="Instellingen opslaan" Padding="14,7" Margin="0,4,8,0" Click="SaveButton_Click" />
-            </StackPanel>
-        </Grid>
-        <WrapPanel Grid.Row="2" Margin="0,2,0,10">
-            <Button x:Name="ConnectButton" Content="Aanmelden / verbinden" Padding="14,7" Margin="0,0,8,0" Click="ConnectButton_Click" />
-            <Button x:Name="MountButton" Content="Koppel schijf" Padding="14,7" Margin="0,0,8,0" Click="MountButton_Click" />
-            <Button x:Name="UnmountButton" Content="Ontkoppel" Padding="14,7" Margin="0,0,8,0" Click="UnmountButton_Click" IsEnabled="False" />
-            <Button x:Name="ForgetLoginButton" Content="Wis lokale UGREENlink-aanmelding" Padding="14,7" Margin="0,0,8,0" Click="ForgetLoginButton_Click" />
-            <CheckBox x:Name="StartupBox" Content="Start bij Windows-aanmelding" VerticalAlignment="Center" Margin="8,0,0,0" />
+                <Button x:Name="ForgetLoginButton" Grid.Column="2" Content="Wis lokale aanmelding"
+                        Padding="10,6" VerticalAlignment="Bottom" Click="ForgetLoginButton_Click" />
+            </Grid>
+        </Expander>
+
+        <WrapPanel Grid.Row="4" Margin="0,0,0,10" VerticalAlignment="Center">
+            <Button x:Name="ConnectButton" Content="Verbinden en schijf openen" Padding="16,8" Margin="0,0,10,0"
+                    FontWeight="SemiBold" Click="ConnectButton_Click" />
+            <Button x:Name="UnmountButton" Content="Schijf ontkoppelen" Padding="12,8" Margin="0,0,12,0"
+                    Click="UnmountButton_Click" IsEnabled="False" />
+            <CheckBox x:Name="StartupBox" Content="Start en koppel automatisch aan bij Windows-aanmelding"
+                      VerticalAlignment="Center" />
         </WrapPanel>
-        <Border Grid.Row="3" Background="#F2F5F8" CornerRadius="6" Padding="10" Margin="0,0,0,10">
-            <DockPanel>
-                <TextBlock Text="Status" FontWeight="SemiBold" DockPanel.Dock="Left" Margin="0,0,10,0" />
-                <TextBlock x:Name="StatusText" Text="Niet verbonden" />
-                <TextBlock x:Name="BackendText" Text="Backend: geen" DockPanel.Dock="Right" Foreground="#555" />
-            </DockPanel>
-        </Border>
-        <Border Grid.Row="4" BorderBrush="#D5DADF" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
-            <wv2:WebView2 x:Name="Browser" />
-        </Border>
+
+        <Grid Grid.Row="5">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <Border Grid.Row="0" Background="#F2F5F8" CornerRadius="6" Padding="10" Margin="0,0,0,10">
+                <DockPanel>
+                    <TextBlock Text="Status" FontWeight="SemiBold" DockPanel.Dock="Left" Margin="0,0,10,0" />
+                    <TextBlock x:Name="StatusText" Text="Niet verbonden" TextWrapping="Wrap" />
+                    <TextBlock x:Name="BackendText" Text="Backend: geen" DockPanel.Dock="Right" Foreground="#555" Margin="12,0,0,0" />
+                </DockPanel>
+            </Border>
+            <Border Grid.Row="1" BorderBrush="#D5DADF" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
+                <wv2:WebView2 x:Name="Browser" />
+            </Border>
+        </Grid>
     </Grid>
 </Window>

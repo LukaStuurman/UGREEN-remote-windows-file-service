@@ -25,6 +25,8 @@ public partial class MainWindow : Window
     private string? _mountedPoint;
     private bool _exitRequested;
     private bool _autoMountAttempted;
+    private bool _connectAndMountRequested;
+    private bool _browserNavigationPending;
 
     public MainWindow()
     {
@@ -48,8 +50,8 @@ public partial class MainWindow : Window
         if (DriveLetterBox.Items.Contains(_settings.DriveLetter)) DriveLetterBox.SelectedItem = _settings.DriveLetter;
         StartupBox.IsChecked = _settings.AutoStart;
         TokenHint.Text = string.IsNullOrEmpty(_settings.Token)
-            ? "Genereer een token van minstens 32 tekens en voer die ook in de Docker-projectinstellingen in."
-            : "Een token is opgeslagen. Laat dit veld leeg om het opgeslagen token te behouden.";
+            ? "Eenmalig nodig om alleen de Techbase-service te autoriseren. De NAS-aanmelding alleen is geen bestandstoestemming."
+            : "Toegangscode opgeslagen en met Windows DPAPI versleuteld. Laat leeg om deze te behouden.";
 
         try
         {
@@ -63,6 +65,7 @@ public partial class MainWindow : Window
             _bridge = new RemoteBridge(Browser);
             await _bridge.InitializeAsync();
             _remote = new RemoteBackend(_bridge);
+            Browser.NavigationStarting += (_, _) => _browserNavigationPending = true;
             Browser.NavigationCompleted += Browser_NavigationCompleted;
         }
         catch (Exception ex)
@@ -74,6 +77,7 @@ public partial class MainWindow : Window
 
         if (TryConfigureFromSettings())
         {
+            _browserNavigationPending = true;
             Browser.Source = ValidateRemoteUrl(_settings.RemoteUrl);
             StatusText.Text = "UGREENlink openen. Meld aan in het venster hieronder.";
         }
@@ -84,6 +88,7 @@ public partial class MainWindow : Window
 
     private void Browser_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
     {
+        _browserNavigationPending = false;
         _ = ProbeRemoteAfterNavigationAsync();
     }
 
@@ -95,41 +100,41 @@ public partial class MainWindow : Window
         {
             StatusText.Text = "UGREENlink en de NAS-service zijn verbonden.";
             _lastRemoteProbe = DateTimeOffset.UtcNow;
-            await MaybeAutoMountAsync();
+            await MaybeAutoMountAsync(_connectAndMountRequested);
         }
         else
         {
-            StatusText.Text = "Meld je aan bij UGREENlink in het browservenster.";
+            StatusText.Text = _connectAndMountRequested
+                ? "Meld je aan in het browservenster; daarna wordt de schijf automatisch gekoppeld."
+                : "Meld je aan bij UGREENlink in het browservenster.";
             if (_settings.AutoStart && !IsVisible) Show();
+            if (_connectAndMountRequested) await TryMountFromSmbAsync();
         }
         UpdateBackendText();
-    }
-
-    private void SaveButton_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            SaveSettingsFromForm();
-            WpfMessageBox.Show(this, "Instellingen opgeslagen.", "UGREEN Remote Drive", MessageBoxButton.OK, MessageBoxImage.Information);
-        }
-        catch (Exception ex)
-        {
-            WpfMessageBox.Show(this, ex.Message, "Instellingen", MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
     }
 
     private async void ConnectButton_Click(object sender, RoutedEventArgs e)
     {
         try
         {
+            _connectAndMountRequested = true;
+            _autoMountAttempted = false;
             SaveSettingsFromForm();
-            if (string.IsNullOrWhiteSpace(_settings.RemoteUrl)) throw new InvalidOperationException("Vul eerst de ugapp.link-snelkoppeling in.");
+            if (string.IsNullOrWhiteSpace(_settings.RemoteUrl))
+                throw new InvalidOperationException("Plak eerst het UGREENlink-adres van de NAS Docker-snelkoppeling.");
             var target = ValidateRemoteUrl(_settings.RemoteUrl);
             ConfigureRemote();
             if (Browser.Source is null || !SameOrigin(Browser.Source, target))
             {
-                StatusText.Text = "UGREENlink openen. Meld aan in het browservenster hieronder.";
+                StatusText.Text = "Meld je aan in het browservenster; daarna wordt de schijf automatisch gekoppeld.";
+                _browserNavigationPending = true;
                 Browser.Source = target;
+                await TryMountFromSmbAsync();
+            }
+            else if (_browserNavigationPending)
+            {
+                StatusText.Text = "UGREENlink wordt geopend; meld je aan als daarom wordt gevraagd.";
+                await TryMountFromSmbAsync();
             }
             else
             {
@@ -138,49 +143,78 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            _connectAndMountRequested = false;
             StatusText.Text = ex.Message;
         }
     }
 
-    private async void MountButton_Click(object sender, RoutedEventArgs e)
+    private async Task MountDriveAsync()
     {
+        if (_dokanInstance is not null) return;
+        RebuildBackends();
+        if (_backends is null) throw new InvalidOperationException("Controleer het UGREENlink-adres en de toegangscode.");
+        await _backends.ProbeSmbAsync();
+        if (!_backends.SmbReachable && _remote?.IsAuthenticated != true)
+            throw new InvalidOperationException("De NAS is nog niet verbonden. Meld aan bij UGREENlink en probeer opnieuw.");
+
+        var letter = (DriveLetterBox.SelectedItem as string ?? _settings.DriveLetter).Trim().TrimEnd('\\');
+        var mountPoint = letter + "\\";
+        if (DriveInfo.GetDrives().Any(drive => drive.Name.Equals(mountPoint, StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException($"{letter} is al in gebruik. Kies een andere schijfletter bij Optioneel.");
+
+        var logger = new NullLogger();
+        _dokan = new Dokan(logger);
+        var builder = new DokanInstanceBuilder(_dokan)
+            .ConfigureLogger(() => logger)
+            .ConfigureOptions(options =>
+            {
+                options.Options = DokanOptions.FixedDrive;
+                options.MountPoint = mountPoint;
+            });
+        _dokanInstance = builder.Build(new DriveFileSystem(_backends));
+        _mountedPoint = mountPoint;
+        _autoMountAttempted = true;
+        ConnectButton.IsEnabled = false;
+        UnmountButton.IsEnabled = true;
+        SetConfigurationControlsEnabled(false);
+        StatusText.Text = $"Schijf {letter} is gekoppeld; Verkenner wordt geopend. De app blijft in het systeemvak actief.";
+        DriveLog.Info("Drive mount requested.");
+        _ = MonitorMountAsync(_dokanInstance, _dokan);
+        _ = OpenDriveInExplorerAsync(mountPoint);
+        UpdateBackendText();
+    }
+
+    private static async Task OpenDriveInExplorerAsync(string mountPoint)
+    {
+        await Task.Delay(500);
         try
         {
-            if (_dokanInstance is not null) return;
-            SaveSettingsFromForm();
-            RebuildBackends();
-            if (_backends is null) throw new InvalidOperationException("Controleer de instellingen.");
-            await _backends.ProbeSmbAsync();
-            var letter = (DriveLetterBox.SelectedItem as string ?? _settings.DriveLetter).Trim().TrimEnd('\\');
-            var mountPoint = letter + "\\";
-            if (DriveInfo.GetDrives().Any(drive => drive.Name.Equals(mountPoint, StringComparison.OrdinalIgnoreCase)))
-                throw new InvalidOperationException($"{letter} is al in gebruik. Kies een andere driveletter.");
-
-            var logger = new NullLogger();
-            _dokan = new Dokan(logger);
-            var builder = new DokanInstanceBuilder(_dokan)
-                .ConfigureLogger(() => logger)
-                .ConfigureOptions(options =>
-                {
-                    options.Options = DokanOptions.FixedDrive;
-                    options.MountPoint = mountPoint;
-                });
-            _dokanInstance = builder.Build(new DriveFileSystem(_backends));
-            _mountedPoint = mountPoint;
-            MountButton.IsEnabled = false;
-            UnmountButton.IsEnabled = true;
-            SetConfigurationControlsEnabled(false);
-            StatusText.Text = $"Schijf {letter} is gekoppeld. De app blijft in het systeemvak actief.";
-            DriveLog.Info("Drive mount requested.");
-            _ = MonitorMountAsync(_dokanInstance, _dokan);
+            Process.Start(new ProcessStartInfo("explorer.exe", mountPoint) { UseShellExecute = true });
         }
         catch (Exception ex)
         {
-            DisposeMountObjects();
+            DriveLog.Error("Could not open the mounted drive in Explorer: " + ex.GetType().Name);
+        }
+    }
+
+    private async Task<bool> TryMountFromSmbAsync()
+    {
+        if (!_connectAndMountRequested || _backends is null || string.IsNullOrWhiteSpace(_settings.SmbPath)) return false;
+        await _backends.ProbeSmbAsync();
+        if (!_backends.SmbReachable) return false;
+        try
+        {
+            await MountDriveAsync();
+            _connectAndMountRequested = false;
+            return true;
+        }
+        catch (Exception ex)
+        {
             StatusText.Text = "Koppelen is mislukt: " + ex.Message;
             DriveLog.Error("Mount failed: " + ex.GetType().Name);
+            DisposeMountObjects();
+            return false;
         }
-        UpdateBackendText();
     }
 
     private async Task MonitorMountAsync(DokanInstance instance, Dokan dokan)
@@ -191,7 +225,7 @@ public partial class MainWindow : Window
         {
             if (!ReferenceEquals(_dokanInstance, instance)) return;
             DisposeMountObjects();
-            MountButton.IsEnabled = true;
+            ConnectButton.IsEnabled = true;
             UnmountButton.IsEnabled = false;
             SetConfigurationControlsEnabled(true);
             _mountedPoint = null;
@@ -230,16 +264,27 @@ public partial class MainWindow : Window
             var authenticated = await Task.Run(_remote.Authenticate);
             if (!authenticated && _settings.AutoStart && _dokanInstance is null && Browser.Source is not null && !IsVisible)
                 Show();
-            if (authenticated) await MaybeAutoMountAsync();
+            if (authenticated) await MaybeAutoMountAsync(_connectAndMountRequested);
         }
         UpdateBackendText();
     }
 
-    private async Task MaybeAutoMountAsync()
+    private async Task MaybeAutoMountAsync(bool requested = false)
     {
-        if (!_settings.AutoStart || _autoMountAttempted || _dokanInstance is not null) return;
+        if ((!_settings.AutoStart && !requested) || _autoMountAttempted || _dokanInstance is not null) return;
         _autoMountAttempted = true;
-        await Dispatcher.InvokeAsync(() => MountButton_Click(this, new RoutedEventArgs()));
+        try
+        {
+            await MountDriveAsync();
+            _connectAndMountRequested = false;
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Koppelen is mislukt: " + ex.Message;
+            DriveLog.Error("Mount failed: " + ex.GetType().Name);
+            DisposeMountObjects();
+            if (requested) _connectAndMountRequested = false;
+        }
     }
 
     private void SaveSettingsFromForm()
@@ -269,10 +314,13 @@ public partial class MainWindow : Window
         SettingsStore.Save(_settings);
         UpdateStartupRegistration(_settings.AutoStart);
         TokenBox.Clear();
-        TokenHint.Text = "Een token is opgeslagen. Laat dit veld leeg om het opgeslagen token te behouden.";
+        TokenHint.Text = "Toegangscode opgeslagen en met Windows DPAPI versleuteld. Laat leeg om deze te behouden.";
         ConfigureRemote();
         if (_settings.AutoStart && !_settings.RemoteUrl.Equals(Browser.Source?.AbsoluteUri, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(_settings.RemoteUrl))
+        {
+            _browserNavigationPending = true;
             Browser.Source = ValidateRemoteUrl(_settings.RemoteUrl);
+        }
         RebuildBackends();
         StatusText.Text = "Instellingen en versleutelde token zijn opgeslagen.";
     }
@@ -322,15 +370,11 @@ public partial class MainWindow : Window
         SmbPathBox.IsEnabled = enabled;
         DriveLetterBox.IsEnabled = enabled;
         StartupBox.IsEnabled = enabled;
+        ConnectButton.IsEnabled = enabled;
+        ForgetLoginButton.IsEnabled = enabled;
     }
 
-    private static Uri ValidateRemoteUrl(string value)
-    {
-        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps ||
-            !uri.Host.EndsWith(".ugapp.link", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("Vul de HTTPS-URL in van de UGREENlink-desktopshortcut voor de container (domein moet eindigen op .ugapp.link).");
-        return uri;
-    }
+    private static Uri ValidateRemoteUrl(string value) => UgreenLinkAddress.Validate(value);
 
     private static bool SameOrigin(Uri a, Uri b) =>
         a.GetLeftPart(UriPartial.Authority).Equals(b.GetLeftPart(UriPartial.Authority), StringComparison.OrdinalIgnoreCase);

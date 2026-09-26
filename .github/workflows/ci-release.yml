@@ -187,8 +187,11 @@ jobs:
           set -euo pipefail
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             tag="$GITHUB_REF_NAME"
-            prerelease_args=()
             tag_args=(--verify-tag)
+            prerelease_args=()
+            if [[ "$tag" == *-* ]]; then
+              prerelease_args=(--prerelease)
+            fi
           else
             tag="v0.1.0-preview.1"
             prerelease_args=(--prerelease)

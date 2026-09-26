@@ -19,11 +19,13 @@ Do not publish a stable release until the actual NAS path and UGREENlink route h
 
 The GitHub container smoke test uses a disposable empty directory on a hosted runner. It proves that the Docker image builds, the health endpoint responds, and the API enforces its token; it does not prove UGREENlink or NAS behavior.
 
+If implementation is ready for wider testing but the NAS write/integration checklist is incomplete, publish only a clearly named prerelease tag such as `v0.2.0-preview.1`. The workflow recognizes any hyphenated version tag as a GitHub prerelease. Do not call it NAS-validated or promote it to stable until every required integration check passes.
+
 ## Versioning and publishing
 
 1. Review changes on `main`; update `VERSION` in `server/app.py` when changing the server API.
 2. Run the documented Python tests and Windows client build. Review the current GitHub Actions run and NAS test record.
-3. Choose a new semantic version tag such as `v0.2.0`; do not reuse or move a published tag.
+3. Choose a new semantic version tag; use `v0.2.0-preview.1` while integration remains incomplete, or a stable tag such as `v0.2.0` only after the required checklist passes. Do not reuse or move a published tag.
 4. Create and push an annotated tag from the exact tested commit:
 
    ```powershell

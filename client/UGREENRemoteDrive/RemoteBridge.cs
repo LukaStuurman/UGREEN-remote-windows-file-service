@@ -169,8 +169,7 @@ internal sealed class RemoteBridge
         return builder.Uri.AbsoluteUri;
     }
 
-    private static bool IsAllowedOrigin(Uri uri, Uri serviceOrigin) => uri.Scheme == Uri.UriSchemeHttps &&
-        uri.Host.EndsWith(".ugapp.link", StringComparison.OrdinalIgnoreCase) &&
+    private static bool IsAllowedOrigin(Uri uri, Uri serviceOrigin) => UgreenLinkAddress.IsAllowedOrigin(uri) &&
         uri.GetLeftPart(UriPartial.Authority).Equals(serviceOrigin.GetLeftPart(UriPartial.Authority), StringComparison.OrdinalIgnoreCase);
 
     private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
