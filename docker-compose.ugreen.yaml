@@ -10,7 +10,6 @@ services:
       DATA_ROOT: /data
       TECHBASE_HOST_PATH: "${DATA_PATH:?Set the verified host path of the Techbase NAS share}"
       PORT: "8080"
-      UGREEN_DRIVE_TOKEN: "${UGREEN_DRIVE_TOKEN:?Set a random token of at least 32 characters}"
     ports:
       - "127.0.0.1:18765:8080"
     volumes:

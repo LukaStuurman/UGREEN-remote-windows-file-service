@@ -5,11 +5,10 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         mc:Ignorable="d"
-        Title="UGREEN Remote Drive" Height="780" Width="900" MinHeight="680" MinWidth="760"
+        Title="UGREEN Remote Drive" Height="710" Width="900" MinHeight="620" MinWidth="760"
         WindowStartupLocation="CenterScreen">
     <Grid Margin="18">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -25,17 +24,11 @@
             <TextBlock Text="UGREENlink-adres van de NAS Docker-snelkoppeling" FontWeight="SemiBold" />
             <TextBox x:Name="RemoteUrlBox" Height="32" Margin="0,4,0,0" VerticalContentAlignment="Center"
                      ToolTip="Plak hier het HTTPS-adres van je UGREEN Docker-snelkoppeling." />
-        </StackPanel>
-
-        <StackPanel Grid.Row="2" Margin="0,0,0,10">
-            <TextBlock Text="Toegangscode van de NAS-service" FontWeight="SemiBold" />
-            <PasswordBox x:Name="TokenBox" Height="32" Margin="0,4,0,0" VerticalContentAlignment="Center" />
-            <TextBlock x:Name="TokenHint"
-                       Text="Eenmalig nodig om de Techbase-service te autoriseren; veilig versleuteld op deze pc bewaard."
+            <TextBlock Text="Je UGREENlink-aanmelding is voldoende; er is geen aparte toegangscode meer nodig."
                        FontSize="11" Foreground="#666" Margin="0,3,0,0" TextWrapping="Wrap" />
         </StackPanel>
 
-        <Expander Grid.Row="3" Header="Optioneel: LAN/SMB en andere schijfletter" Margin="0,0,0,12">
+        <Expander Grid.Row="2" Header="Optioneel: LAN/SMB en andere schijfletter" Margin="0,0,0,12">
             <Grid Margin="0,8,0,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="2*" />
@@ -56,7 +49,7 @@
             </Grid>
         </Expander>
 
-        <WrapPanel Grid.Row="4" Margin="0,0,0,10" VerticalAlignment="Center">
+        <WrapPanel Grid.Row="3" Margin="0,0,0,10" VerticalAlignment="Center">
             <Button x:Name="ConnectButton" Content="Verbinden en schijf openen" Padding="16,8" Margin="0,0,10,0"
                     FontWeight="SemiBold" Click="ConnectButton_Click" />
             <Button x:Name="UnmountButton" Content="Schijf ontkoppelen" Padding="12,8" Margin="0,0,12,0"
@@ -65,7 +58,7 @@
                       VerticalAlignment="Center" />
         </WrapPanel>
 
-        <Grid Grid.Row="5">
+        <Grid Grid.Row="4">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />

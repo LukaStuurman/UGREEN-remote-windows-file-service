@@ -31,7 +31,7 @@ De eerste implementatie staat op `main` in commit `456fe4d` (`feat: add UGREENli
 
 - Op deze Windows-pc draait de geïnstalleerde client; de virtuele schijf `U:` is bereikbaar en de rootlijst gaf 4 items terug. De ingestelde shortcut gebruikt het UGREEN-domein `ugdocker.link`. Dit bevestigt mounten en directory-listing lokaal; er is in deze controle geen NAS-write-test uitgevoerd en bestaande bestandsnamen staan niet in dit document.
 - De Windows-configuratie is vereenvoudigd naar één actie die instellingen opslaat, UGREENlink opent en de schijf na aanmelding automatisch koppelt. SMB en een alternatieve schijfletter zijn optioneel.
-- Het API-toegangstoken blijft nodig voor bestandsrechten: UGREENlink-aanmelding opent de shortcut, maar autoriseert op zichzelf geen bestandsbewerkingen. Het token wordt alleen lokaal versleuteld opgeslagen.
+- De toenmalige release vroeg naast UGREENlink-login ook een bearer-token. In de follow-up van 2026-09-26 is de code aangepast om de UGREENlink-login als enige remote toegangscontrole te gebruiken; deze wijziging moet nog in een nieuwe release en op de NAS worden uitgerold voordat de huidige client tokenloos kan verbinden.
 
 Vermeld voortaan duidelijk welke resultaten lokaal zijn getest en welke op de NAS zijn getest. Claim geen werkende remote mount voordat die end-to-end is geverifieerd.
 
@@ -46,7 +46,7 @@ Windows Explorer
        -> Remote-backend
             -> RemoteBridge.cs
             -> WebView2-pagina met actieve UGREENlink-login
-            -> HTTPS same-origin fetch met bearer-token
+            -> HTTPS same-origin fetch met UGREENlink-sessie en client-header
             -> UGREENlink desktopshortcut voor de NAS-container
             -> Python API-container
             -> alleen de hostmap die als /data is gemount
@@ -57,11 +57,11 @@ Windows Explorer
 - De door de gebruiker gedeelde URL was een bestaande Media Hub-appshortcut. Gebruik die alleen als voorbeeld van het `ugapp.link`-mechanisme; hardcode of publiceer die persoonlijke URL niet. De eigen container krijgt na deployment een aparte UGREENlink Docker-desktopshortcut.
 - De UGREENlink-login gebeurt in de client in WebView2. API-calls worden als `fetch` vanuit die pagina gedaan, met `credentials: include`, zodat de browser zijn normale UGREENlink-sessie gebruikt.
 - De client leest, kopieert of exporteert geen UGREENlink-cookies en bewaart het NAS-wachtwoord niet. De WebView2-profielmap is lokaal voor deze app.
-- De API gebruikt daarnaast een aparte bearer-token. Het token wordt alleen aan de ingestelde UGREENlink-origin (`*.ugapp.link` of `*.ugdocker.link`) meegestuurd en lokaal door Windows DPAPI voor de huidige gebruiker versleuteld bewaard.
+- De nieuwe implementatie gebruikt geen tweede bearer-token. UGREENlink-login beschermt de shortcut; fetch-verzoeken gebruiken `credentials: include`. De API verwacht daarnaast `X-UGREEN-Remote-Drive: 1` als browser-/client-header om gewone cross-site form-verzoeken te blokkeren. Dit is geen gedeelde geheime sleutel en geeft binnen de shortcut geen per-gebruiker-autorisatie.
 - De bridge controleert HTTPS, uitsluitend `.ugapp.link` of `.ugdocker.link`, en dezelfde exacte origin voor de huidige pagina en API-doel-URL. Verruim deze controle niet naar willekeurige domeinen.
 - De UGREENlink-proxy moet de containershortcut op poort `18765` kunnen bereiken, hoewel de Docker-hostpoort op `127.0.0.1` gebonden is. Dit is nog niet op de NAS bewezen. Test dit expliciet.
 - Als de shortcut een loopback-hostbinding niet kan bereiken, wijzig de poortbinding niet stilzwijgend naar `0.0.0.0`. Beoordeel eerst de UGOS-proxyroute, firewall en veiligste minimale binding; vraag toestemming voordat de netwerkblootstelling wordt vergroot.
-- De officiële UGREEN app-integratieauthenticatie is niet automatisch beschikbaar voor een gewone Compose-container. Dit ontwerp gebruikt daarom UGREENlink voor de browser-login en een eigen API-token voor de bestandsservice.
+- UGREEN documenteert dat remote toegang tot Docker-desktopshortcuts alleen beschikbaar is voor gebruikers die via UGREENlink zijn aangemeld: https://support.ugnas.com/detail/article/en-US/715. De gewone Compose-container krijgt geen individuele UGREEN-accountidentiteit; iedere account die de shortcut mag openen krijgt dezelfde read/write-toegang tot Techbase. Beperk shortcutrechten tot vertrouwde NAS-accounts.
 
 ### Servercontainer
 
@@ -70,12 +70,11 @@ Windows Explorer
 - Alleen het hostpad van de gedeelde map `Techbase` mag als `/data` worden gemount. Het is een read/write-mount omdat Explorer bestanden en mappen moet kunnen wijzigen. Compose voorkomt het automatisch aanmaken van een ontbrekend bronpad en de server weigert hostpaden die niet absoluut zijn of niet eindigen op `Techbase`. Die naamcontrole bewijst niet dat een gelijknamige map echt de UGOS-share is; verifieer daarom het exacte pad in UGOS. Mount nooit `/volume1`, een parentmap of een andere share.
 - De NAS Compose-configuratie staat in `docker-compose.ugreen.yaml`; `UGREEN_DRIVE_REF` kiest de branch/tag van de GitHub-buildcontext en image-tag. Gebruik voor een release de bijbehorende geteste tag; de standaard `main` is alleen voor development. De lokale ontwikkelconfiguratie staat in `docker-compose.yaml`.
 - De container gebruikt de ingestelde `PUID:PGID` (standaard in Compose `1000:10`), read-only root filesystem, tijdelijke `/tmp`, geen Linux-capabilities, `no-new-privileges`, en CPU-/procesbeperkingen.
-- `UGREEN_DRIVE_TOKEN` moet minstens 32 tekens zijn. Genereer een cryptografisch willekeurig token en sla het alleen op in de NAS-projectconfiguratie en de Windows-client. Commit, log of post het token nooit.
-- De API weigert te starten als token of `DATA_ROOT` ongeldig is. Autorisatie wordt met `hmac.compare_digest` gecontroleerd.
+- Er is geen `UGREEN_DRIVE_TOKEN` meer. De server weigert te starten als `DATA_ROOT` of `TECHBASE_HOST_PATH` ongeldig is.
 
 ### API-overzicht
 
-Alle API-routes behalve `/` en `/api/v1/health` vereisen `Authorization: Bearer <token>`. Bestandspaden zijn relatief aan `/data` en gebruiken `/` als scheidingsteken.
+Alle bestands-API-routes behalve `/` en `/api/v1/health` vereisen de header `X-UGREEN-Remote-Drive: 1`. Deze niet-standaard browserheader voorkomt normale cross-site browserforms; de externe UGREENlink-sessie is de toegangscontrole. Bestandspaden zijn relatief aan `/data` en gebruiken `/` als scheidingsteken.
 
 | Methode en route | Functie |
 | --- | --- |
@@ -103,7 +102,7 @@ De server weigert absolute paden, `..`, paden buiten de ingestelde root, symboli
 - De SMB-backend gebruikt de bestaande Windows SMB-identiteit en bewaart geen SMB-wachtwoord. Configuratie en backend accepteren uitsluitend de UNC-share-root `\\server\Techbase`, zonder andere shares of submappen. De client controleert SMB periodiek; bereikbare SMB krijgt voorrang boven remote.
 - De statuscontrole loopt via een 5-seconden UI-timer; SMB-probes hebben een timeout van 2 seconden en remote-authenticatie wordt periodiek opnieuw geprobeerd. Een onderbroken lopende bestandsactie wordt niet gegarandeerd hervat: de app meldt de fout zodat die opnieuw kan worden uitgevoerd.
 - De client draait in het systeemvak. Optioneel kan Windows-aanmelding worden ingesteld via de current-user Run-registersleutel. Bij autostart kan de app zichtbaar worden als opnieuw aanmelden vereist is.
-- Configuratie en WebView2-profiel staan onder `%LOCALAPPDATA%\UGREEN Remote Drive`; logs staan in de submap `logs`. Het token in `config.json` is DPAPI-versleuteld voor de huidige Windows-gebruiker.
+- Configuratie en WebView2-profiel staan onder `%LOCALAPPDATA%\UGREEN Remote Drive`; logs staan in de submap `logs`. Oude versies bewaarden een DPAPI-versleuteld token; de nieuwe client negeert het legacyveld en verwijdert het bij de volgende configuratie-save.
 - Logs mogen geen bestandsnamen, tokens, cookies of request bodies bevatten. Verander dit niet bij diagnostiek.
 
 ## Beperkingen van de huidige versie
@@ -131,7 +130,7 @@ De publicatie-output staat in `client/UGREENRemoteDrive/bin/` en hoort niet in G
 
 ## GitHub CI en releases
 
-`.github/workflows/ci-release.yml` voert bij pull requests en pushes naar `main` drie controles uit: de servertests op Linux, een containerbuild en health/auth-smoketest met een wegwerpmap op een GitHub-runner, en de Windows-clientbuild op Windows. Een push van een tag met prefix `v` voert dezelfde controles uit, publiceert daarna een self-contained Windows ZIP en SHA-256-bestand als GitHub Release-assets, en laat GitHub source archives van de getagde commit aanbieden.
+`.github/workflows/ci-release.yml` voert bij pull requests en pushes naar `main` drie controles uit: de servertests op Linux, een containerbuild en health/client-header-smoketest met een wegwerpmap op een GitHub-runner, en de Windows-clientbuild op Windows. Een push van een tag met prefix `v` voert dezelfde controles uit, publiceert daarna een self-contained Windows ZIP en SHA-256-bestand als GitHub Release-assets, en laat GitHub source archives van de getagde commit aanbieden.
 
 `RELEASING.md` bevat het vrijgaveproces. Een stabiele release mag pas worden gepubliceerd nadat de Techbase-only NAS-tests, SMB op LAN, UGREENlink remote toegang en basisbestandsbewerkingen zijn geslaagd. Als integratie nog niet volledig is, gebruik uitsluitend een duidelijk herkenbare `-preview.N`-prerelease en claim geen NAS-validatie. CI-smoketests zijn geen bewijs van echte NAS-integratie.
 
@@ -144,18 +143,18 @@ Voer na goedkeuring eventuele schrijftests uit in een nieuw, duidelijk benoemd t
 Bij goedgekeurde test:
 
 1. Controleer de Docker-projectvelden, NAS UID/GID-rechten en dat `DATA_PATH` exact het geverifieerde hostpad van de gedeelde map `Techbase` is.
-2. Genereer een nieuw token lokaal/veilig; plaats het niet in GitHub, logs of chat.
+2. Stel geen API-token in; UGREENlink-login is de remote toegangscontrole. Controleer dat alleen vertrouwde NAS-accounts de Docker-shortcut mogen openen.
 3. Deploy `docker-compose.ugreen.yaml` met uitsluitend de Techbase-share als `DATA_PATH`.
 4. Na expliciete toestemming, maak een tijdelijk submapje en benoemd testbestand binnen `Techbase`; test lezen/schrijven/hernoemen/verwijderen en verwijder alleen die eigen testitems.
 5. Maak in UGREEN Docker een desktopshortcut voor poort `18765`; noteer de nieuw gegenereerde URL alleen in de lokale Windows-clientconfiguratie, niet in deze repo.
 6. Als shortcut-proxy of HTTPS same-origin fetch faalt, stop daar en onderzoek de oorzaak. Breid de hostbinding of de toegankelijke NAS-map niet uit zonder nieuwe toestemming.
 7. Test daarna op Windows eerst de remote API zonder Dokany-mount. Installeer de officiële driver en mount pas na afzonderlijke afstemming als dat nog nodig is; documenteer elk gewijzigd NAS-/Windows-item en verwijder uitsluitend de expliciet aangemaakte tijdelijke testbestanden.
 
-Een veilige test moet expliciet rapporteren: NAS-containerstatus, health-resultaat, shortcut-toegang, token-auth (geldige/ongeldige token), create/read/write/rename/delete, Windows-build, Dokany-status en wat niet getest kon worden.
+Een veilige test moet expliciet rapporteren: NAS-containerstatus, health-resultaat, shortcut-auth voor aangemelde en niet-aangemelde gebruikers, client-headercontrole, create/read/write/rename/delete, Windows-build, Dokany-status en wat niet getest kon worden.
 
 ## Bronnen en upstream documentatie
 
-- [UGREEN Docker-handleiding voor een desktopshortcut naar een containerwebinterface](https://ai.ugreen.com/blogs/how-to/set-up-navidrome-on-nas). De UGOS-interface kan per versie afwijken; controleer de actuele UI voordat je de shortcut maakt.
+- [UGREEN-handleiding voor Docker-shortcuts en UGREENlink-remote access](https://support.ugnas.com/detail/article/en-US/715): remote toegang tot containers is volgens UGREEN alleen beschikbaar voor aangemelde UGREENlink-gebruikers.
 - [UGREEN login-authenticatie voor geïntegreerde UGOS-apps](https://developer.ugnas.com/doc/backend/system-capabilities/login-auth.html) en [UGREEN Docker-apps ontwikkelen](https://developer.ugnas.com/en/doc/backend/quick-start/develop-docker-app.html). Deze beschrijven de app-integratieroute; een gewone Compose-container erft die integratie niet vanzelf.
 - [Officiële Dokany 2.3.1.1000-release](https://github.com/dokan-dev/dokany/releases/tag/v2.3.1.1000) en [DokanNet 2.3.0.3-release](https://github.com/dokan-dev/dokan-dotnet/releases/tag/v2.3.0.3). Controleer compatibiliteit en release-informatie opnieuw voordat je een driver installeert.
 
@@ -163,7 +162,7 @@ Een veilige test moet expliciet rapporteren: NAS-containerstatus, health-resulta
 
 - Inspecteer eerst `git status`, `README.md`, dit bestand en de relevante code. Behoud de bestaande repositorystructuur.
 - Houd wijzigingen klein, benoem expliciet aannames en actualiseer README of dit bestand als gedrag, configuratie of teststatus verandert.
-- Behoud de security-invarianten: uitsluitend de gedeelde map `Techbase` expliciet mounten en als enige SMB-share accepteren, loopback-hostbinding, sterk bearer-token, HTTPS- en same-origin-validatie, geen cookie-export, DPAPI-tokenopslag, geen gevoelige logs.
+- Behoud de security-invarianten: uitsluitend de gedeelde map `Techbase` expliciet mounten en als enige SMB-share accepteren, loopback-hostbinding, UGREENlink-login voor remote toegang, HTTPS- en same-origin-validatie, client-header tegen gewone browser-CSRF, geen cookie-export en geen gevoelige logs.
 - Hardcode geen NAS-ID, UGREENlink-URL, account, sharepad, token of gebruiker-specifieke waarde.
 - Voer geen destructieve of productie-NAS-acties uit. Vraag concrete bevestiging voordat je nieuwe code op de NAS draait, een andere map mount, een driver installeert of de netwerkblootstelling verruimt.
 - Rapporteer lokale tests afzonderlijk van echte NAS-integratietests. Noem openstaande onzekerheden expliciet.

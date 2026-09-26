@@ -12,7 +12,6 @@ internal sealed class RemoteBridge
 {
     private readonly WebView2 _view;
     private Uri? _serviceOrigin;
-    private string _token = "";
     private readonly ConcurrentDictionary<string, TaskCompletionSource<BridgeReply>> _pending = new();
     private bool _initialized;
 
@@ -23,17 +22,15 @@ internal sealed class RemoteBridge
 
     public bool IsAuthenticated { get; private set; }
 
-    public void Configure(Uri serviceOrigin, string token)
+    public void Configure(Uri serviceOrigin)
     {
         _serviceOrigin = new Uri(serviceOrigin.GetLeftPart(UriPartial.Authority) + "/");
-        _token = token;
         IsAuthenticated = false;
     }
 
     public void ClearConfiguration()
     {
         _serviceOrigin = null;
-        _token = "";
         IsAuthenticated = false;
     }
 
@@ -50,7 +47,7 @@ internal sealed class RemoteBridge
                 try {
                   const target = new URL(request.url, location.href);
                   if (target.origin !== location.origin) throw new Error('The active page is not the configured UGREENlink app.');
-                  const headers = { 'Authorization': 'Bearer ' + request.token };
+                  const headers = { 'X-UGREEN-Remote-Drive': '1' };
                   let body = undefined;
                   if (request.body !== null) {
                     if (request.bodyKind === 'binary') {
@@ -116,7 +113,6 @@ internal sealed class RemoteBridge
             id,
             method,
             url,
-            token = _token,
             body = binaryBody is not null ? Convert.ToBase64String(binaryBody) : jsonBody,
             bodyKind = binaryBody is not null ? "binary" : "json",
             responseKind = binaryResponse ? "binary" : "json"

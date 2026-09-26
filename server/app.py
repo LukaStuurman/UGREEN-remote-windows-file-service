@@ -1,24 +1,21 @@
 #!/usr/bin/env python3
-"""Small, token-authenticated file API for the UGREEN remote drive client."""
+"""Small file API for the UGREENlink-authenticated remote drive client."""
 
 from __future__ import annotations
 
-import hmac
 import json
 import os
 import re
 import shutil
 import stat
-import sys
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-VERSION = "0.1.1"
+VERSION = "0.2.0"
 PORT = int(os.environ.get("PORT", "8080"))
 DATA_ROOT = Path(os.environ.get("DATA_ROOT", "/data")).resolve()
-ACCESS_TOKEN = os.environ.get("UGREEN_DRIVE_TOKEN", "")
 TECHBASE_HOST_PATH = os.environ.get("TECHBASE_HOST_PATH", "")
 MAX_BODY = 4 * 1024 * 1024
 MAX_RANGE = 4 * 1024 * 1024
@@ -120,14 +117,12 @@ class Handler(BaseHTTPRequestHandler):
         values = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
         return {key: items[-1] for key, items in values.items()}
 
-    def require_auth(self) -> None:
-        authorization = self.headers.get("Authorization", "")
-        if not authorization.startswith("Bearer "):
-            raise ApiError(401, "bearer token required")
-        supplied = authorization[7:].encode("utf-8")
-        expected = ACCESS_TOKEN.encode("utf-8")
-        if not hmac.compare_digest(supplied, expected):
-            raise ApiError(401, "invalid bearer token")
+    def require_client_header(self) -> None:
+        # The remote endpoint is available only through the authenticated UGREENlink
+        # Docker shortcut. This non-simple header also prevents ordinary cross-site
+        # browser forms from issuing file-changing requests (CORS preflight fails).
+        if self.headers.get("X-UGREEN-Remote-Drive") != "1":
+            raise ApiError(403, "UGREEN Remote Drive client required")
 
     def read_body(self) -> bytes:
         raw_len = self.headers.get("Content-Length", "")
@@ -163,7 +158,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if not path.startswith("/api/v1/"):
             raise ApiError(404, "not found")
-        self.require_auth()
+        self.require_client_header()
 
         if method == "GET" and path == "/api/v1/stat":
             self.send_json(200, stat_json(resolve_user_path(args.get("path", ""))))
@@ -391,16 +386,13 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    if len(ACCESS_TOKEN) < 32:
-        print("UGREEN_DRIVE_TOKEN must contain at least 32 characters.", file=sys.stderr)
-        raise SystemExit(2)
     try:
         validate_techbase_host_path(TECHBASE_HOST_PATH)
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
+        print(str(exc))
         raise SystemExit(2)
     if not DATA_ROOT.is_dir():
-        print("DATA_ROOT must be an existing directory.", file=sys.stderr)
+        print("DATA_ROOT must be an existing directory.")
         raise SystemExit(2)
     httpd = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     httpd.daemon_threads = True

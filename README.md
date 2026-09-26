@@ -1,66 +1,57 @@
 # UGREEN Remote Windows File Service
 
-Mount only the UGREEN NAS shared folder named `Techbase` as a fixed Windows drive letter. On the home network, the client prefers the `Techbase` SMB share. Away from home, it uses a small API service in a Docker container reached through a UGREENlink desktop shortcut (`*.ugapp.link` or `*.ugdocker.link`).
+Mount only the UGREEN NAS shared folder named `Techbase` as a fixed Windows drive letter. At home, the client prefers the `Techbase` SMB share. Away from home, it uses a small API container reached through a UGREENlink Docker desktop shortcut (`*.ugapp.link` or `*.ugdocker.link`).
 
-The Windows client opens UGREENlink in its own WebView2 window so the user can sign in with the normal UGREENlink login. It does not copy browser cookies or store the NAS account password. File API requests include a separate bearer token configured by the NAS administrator; Windows protects that token with DPAPI for the current Windows user.
+The Windows client opens the shortcut in its own WebView2 window. Sign in with the normal UGREENlink login; **there is no second access code to enter**. UGREEN states that remote access to Docker container shortcuts is available only to users signed in via UGREENlink ([official guide](https://support.ugnas.com/detail/article/en-US/715)). The client uses that authenticated browser session with `credentials: include`; it never reads or exports cookies and does not store the NAS password.
 
 ## Components
 
-- `server/`: token-authenticated API container. It can access only the one host path mounted at `/data`.
-- `client/`: Windows tray/configuration app and Dokany filesystem mount. It uses WebView2 for the authenticated UGREENlink session and Dokany for a drive letter in Explorer.
+- `server/`: a small API container limited to the one host path mounted at `/data`.
+- `client/`: Windows tray/configuration app and Dokany filesystem mount.
 - `docker-compose.yaml`: local/development Compose file.
-- `docker-compose.ugreen.yaml`: NAS Docker Project Compose file; it builds the image from this public GitHub repository.
+- `docker-compose.ugreen.yaml`: UGREEN NAS Docker Project Compose file.
 
 ## NAS setup
 
 1. In the UGREEN Docker app, create a project named `ugreen-remote-drive` and paste `docker-compose.ugreen.yaml` into the Compose editor.
-2. Set `DATA_PATH` to the exact NAS host path of the existing shared folder named `Techbase`. Verify the path in UGOS first. The container refuses a host path that is not absolute or whose final directory name is not `Techbase`; Compose also refuses to create a missing source directory. This check cannot prove that a same-named directory is the UGOS share, so verify its UGOS **Location** field. Set `PUID` and `PGID` to a NAS account that has read/write permission for `Techbase`. Never mount `/volume1`, a parent folder, or another share.
-3. Set `UGREEN_DRIVE_REF` to the exact GitHub release tag you intend to run. Use `main` only for an explicitly identified development test; release tags make NAS deployments reproducible.
-4. Generate a random token with at least 32 characters and set `UGREEN_DRIVE_TOKEN` to it. In PowerShell, this prints a cryptographically random token:
+2. Set `DATA_PATH` to the exact NAS host path of the existing shared folder named `Techbase`. Verify the path in UGOS first. The container refuses a path that is not absolute or whose final directory name is not `Techbase`; Compose also refuses to create a missing source directory. The name check cannot prove that a same-named directory is the UGOS share, so verify its UGOS **Location** field. Set `PUID` and `PGID` to a NAS account with read/write permission for `Techbase`. Never mount `/volume1`, a parent folder, or another share.
+3. Set `UGREEN_DRIVE_REF` to the exact GitHub release tag you intend to run. Use `main` only for an explicitly identified development test.
+4. Deploy the Docker project. The service binds to NAS loopback port `18765`; it does not publish the API port on the LAN interface.
+5. In Docker > Container, open the `ugreen-remote-drive` menu and create a desktop shortcut for port `18765`. Sign in to UGOS via UGREENlink and open the shortcut once. Copy its HTTPS address (`ugapp.link` or `ugdocker.link`) into the Windows client.
 
-   ```powershell
-   $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
-   $bytes = New-Object byte[] 32
-   $rng.GetBytes($bytes)
-   [Convert]::ToBase64String($bytes)
-   $rng.Dispose()
-   ```
-
-   The token is stored in the Docker project configuration; do not commit it or post it publicly.
-5. Deploy the Docker project. The service binds to NAS loopback port `18765`; it does not publish the API port on the LAN interface.
-6. In Docker > Container, open the `ugreen-remote-drive` menu and create a desktop shortcut for port `18765`. Sign in to UGOS via UGREENlink and open the shortcut once. Copy the resulting HTTPS address (`ugapp.link` or `ugdocker.link`) into the Windows client.
-
-UGREENlink protects remote browser access to the shortcut. The API also requires the bearer token, including for a direct request to the container port. The two checks have different jobs: your UGREENlink sign-in opens the shortcut; the token authorizes file operations in this API, whose only mounted data is `Techbase`. Without API authentication, anyone able to reach the service could read or change that share. The client uses the authenticated browser context for remote API requests and never reads or exports UGREENlink cookies.
+The UGREENlink sign-in is the access boundary for the remote shortcut. Any UGREENlink user who is allowed to open this shortcut can use the service's full read/write access to `Techbase`; the ordinary Compose container does not receive separate per-user UGREEN account identities. Grant shortcut access only to accounts trusted with the whole `Techbase` share. The service also binds its host port to `127.0.0.1`, and its file API requires a non-simple client header to prevent ordinary cross-site browser forms from issuing file changes.
 
 ## Windows setup
 
 1. Install the official Dokany 2.3 runtime once; its Windows filesystem driver is required for a drive letter.
-2. Start `UGREENRemoteDrive.exe`. Paste the NAS Docker shortcut's HTTPS address (`ugapp.link` or `ugdocker.link`) and enter the same access token configured in the NAS Docker project. You only do this once per Windows user; the client encrypts the saved token with Windows DPAPI. The token is not your UGREEN password.
+2. Start `UGREENRemoteDrive.exe` and paste the NAS Docker shortcut's HTTPS address (`ugapp.link` or `ugdocker.link`). **No access code or token is needed.**
 3. Click **Verbinden en schijf openen**. If asked, sign in to UGREENlink in the embedded browser; the app then connects the `U:` drive automatically. It uses its own WebView2 profile and does not save your NAS password.
 4. LAN/SMB path and an alternate drive letter are optional under **Optioneel: LAN/SMB en andere schijfletter**. If configured and reachable, the `Techbase` SMB share is preferred at home; otherwise the app uses the remote API.
 5. To reconnect automatically after Windows sign-in, select **Start en koppel automatisch aan bij Windows-aanmelding**. Keep the app running in the system tray while using the drive.
 
 The SMB path uses the Windows user's existing SMB authentication. The app does not store SMB credentials. The SMB field accepts only the share root `\\NASNAME\Techbase`; it rejects other shares and subfolders.
 
+## Updating an existing installation
+
+Deploy the matching release of `docker-compose.ugreen.yaml` and set `UGREEN_DRIVE_REF` to that release tag, then install the matching Windows release. The new Compose file no longer passes `UGREEN_DRIVE_TOKEN`; remove the old variable from the project's environment settings if the UGREEN UI retains unused entries. Keep `DATA_PATH`, `PUID`, `PGID`, the Techbase-only bind mount, and the existing UGREENlink shortcut port unchanged. The new app ignores a legacy encrypted token in its local configuration and removes that obsolete field the next time settings are saved.
+
 ## GitHub checks and releases
 
-The GitHub Actions workflow in `.github/workflows/ci-release.yml` runs the Python API tests, builds and smoke-tests the Docker image using an isolated temporary share on a GitHub runner, and builds the Windows client on pushes to `main` and pull requests.
+The GitHub Actions workflow in `.github/workflows/ci-release.yml` runs Python API tests, builds and smoke-tests the Docker image against an isolated temporary share, and builds the Windows client.
 
-After the Techbase-only NAS integration has passed, push an annotated `vMAJOR.MINOR.PATCH` tag. The workflow repeats those checks, creates a self-contained Windows ZIP with the README and a SHA-256 checksum, and publishes those assets as a GitHub Release with generated notes. GitHub also provides source archives for the tagged source. The release ZIP still requires the official Dokany driver and Microsoft Edge WebView2 Runtime on Windows.
-
-See `RELEASING.md` for the release checklist. A green GitHub workflow validates builds and isolated container behavior; it does not replace tests against the actual NAS, UGREENlink shortcut, or Techbase share.
+The hosted smoke test verifies container behavior but does not prove access control on a real UGREENlink shortcut, the actual NAS share, or Dokany mounting. Keep releases marked as previews until those integration checks have passed. See `RELEASING.md` for the checklist.
 
 ## Supported file operations
 
-Directory listing and metadata, read, create, write by byte range or append, truncate, make directory, rename, delete, modification time, and free-space queries. Symbolic links are deliberately refused by the container. Windows file locking, alternate data streams, security-descriptor editing, and offline write caching are not provided; do not use this mount for databases or applications that require reliable byte-range locks.
+Directory listing and metadata, read, create, write by byte range or append, truncate, make directory, rename, delete, modification time, and free-space queries. Symbolic links are refused. Windows file locking, alternate data streams, security-descriptor editing, and offline write caching are not provided; do not use this mount for databases or applications that require reliable byte-range locks.
 
 ## Security and limits
 
-- Use a random bearer token of at least 32 characters. Rotate it by changing the Docker project value and the client configuration.
-- Keep the Docker volume limited to the `Techbase` share. The mount is read/write because Explorer needs to create, rename, and delete files.
-- The container runs as a non-root UID/GID, with a read-only image filesystem, no added Linux capabilities, and no-new-privileges.
+- Keep the Docker volume limited to the `Techbase` share. The mount is read/write so Explorer can create, rename, and delete files.
+- Only give UGREENlink shortcut access to NAS accounts allowed to read and modify all of `Techbase`.
+- The container runs as a non-root UID/GID with a read-only image filesystem, no added Linux capabilities, and `no-new-privileges`.
 - The Docker host port is bound to `127.0.0.1`; use the UGREENlink shortcut for remote access and SMB for LAN access.
-- The client uses WebView2's own sign-in storage and DPAPI for its bearer token. The token is only sent to the configured HTTPS `ugapp.link` or `ugdocker.link` origin, with same-origin checks.
+- The client accepts only HTTPS origins ending in `.ugapp.link` or `.ugdocker.link` and only sends API requests to the exact configured origin.
 - Requests are chunked to a maximum of 4 MiB. Network interruptions can fail an in-progress write; reconnect and retry from Explorer if needed.
 
 ## Build and local checks
@@ -79,10 +70,10 @@ dotnet build client/UGREENRemoteDrive.sln -c Release
 dotnet test client/UGREENRemoteDrive.sln -c Release --no-build
 ```
 
-The Dokany driver is intentionally not installed by the build. Install it from the official Dokany release when you are ready to mount a drive.
+The Dokany driver is not installed by the build. Install it from the official Dokany release when you are ready to mount a drive.
 
 ## Logging and configuration
 
-Client configuration and its dedicated WebView profile live in `%LOCALAPPDATA%\UGREEN Remote Drive`. The token is DPAPI-encrypted for the current Windows user. Logs are written under `%LOCALAPPDATA%\UGREEN Remote Drive\logs`; the client does not log file names, request bodies, tokens, or cookies.
+Client settings and the dedicated WebView2 profile live under `%LOCALAPPDATA%\UGREEN Remote Drive`. Logs are written under `%LOCALAPPDATA%\UGREEN Remote Drive\logs`; the client does not log file names, request bodies, or cookies. A legacy encrypted access token from an older version is ignored and discarded when settings are next saved.
 
-The server logs client IP, method, API route, status and byte count. It does not log query strings containing file paths, request bodies, or authorization headers.
+The server logs client IP, method, API route, status, and byte count. It does not log query strings containing file paths, request bodies, or cookies.

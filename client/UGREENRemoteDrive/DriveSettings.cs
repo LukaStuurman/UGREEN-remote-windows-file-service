@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 
 namespace UGREENRemoteDrive;
@@ -10,10 +8,6 @@ internal sealed class DriveSettings
     public string SmbPath { get; set; } = "";
     public string DriveLetter { get; set; } = "U:";
     public bool AutoStart { get; set; }
-    public string EncryptedToken { get; set; } = "";
-
-    [System.Text.Json.Serialization.JsonIgnore]
-    public string Token { get; set; } = "";
 }
 
 internal static class SettingsStore
@@ -27,20 +21,9 @@ internal static class SettingsStore
         try
         {
             if (!File.Exists(SettingsPath)) return new DriveSettings();
-            var settings = JsonSerializer.Deserialize<DriveSettings>(File.ReadAllText(SettingsPath)) ?? new DriveSettings();
-            if (!string.IsNullOrWhiteSpace(settings.EncryptedToken))
-            {
-                try
-                {
-                    var protectedBytes = Convert.FromBase64String(settings.EncryptedToken);
-                    settings.Token = Encoding.UTF8.GetString(ProtectedData.Unprotect(protectedBytes, null, DataProtectionScope.CurrentUser));
-                }
-                catch (CryptographicException)
-                {
-                    settings.Token = "";
-                }
-            }
-            return settings;
+            // Unknown legacy fields (including the old encrypted bearer token) are
+            // ignored. The next settings save rewrites config.json without them.
+            return JsonSerializer.Deserialize<DriveSettings>(File.ReadAllText(SettingsPath)) ?? new DriveSettings();
         }
         catch
         {
@@ -56,9 +39,7 @@ internal static class SettingsStore
             RemoteUrl = settings.RemoteUrl.Trim(),
             SmbPath = settings.SmbPath.Trim(),
             DriveLetter = settings.DriveLetter.Trim().ToUpperInvariant(),
-            AutoStart = settings.AutoStart,
-            EncryptedToken = Convert.ToBase64String(ProtectedData.Protect(
-                Encoding.UTF8.GetBytes(settings.Token), null, DataProtectionScope.CurrentUser))
+            AutoStart = settings.AutoStart
         };
         var temp = SettingsPath + ".tmp";
         File.WriteAllText(temp, JsonSerializer.Serialize(copy, new JsonSerializerOptions { WriteIndented = true }));

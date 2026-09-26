@@ -18,7 +18,6 @@ class FileApiTests(unittest.TestCase):
         cls.root = Path(cls.tempdir.name) / "share"
         cls.root.mkdir()
         app.DATA_ROOT = cls.root.resolve()
-        app.ACCESS_TOKEN = "test-token-0123456789-abcdefghijklmnopqrstuvwxyz"
         cls.server = ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
@@ -31,10 +30,10 @@ class FileApiTests(unittest.TestCase):
         cls.thread.join(timeout=2)
         cls.tempdir.cleanup()
 
-    def request(self, method, route, *, body=None, token=True):
+    def request(self, method, route, *, body=None, drive_client=True):
         headers = {}
-        if token:
-            headers["Authorization"] = f"Bearer {app.ACCESS_TOKEN}"
+        if drive_client:
+            headers["X-UGREEN-Remote-Drive"] = "1"
         data = body
         if isinstance(body, dict):
             headers["Content-Type"] = "application/json"
@@ -63,10 +62,21 @@ class FileApiTests(unittest.TestCase):
         self.request("DELETE", "/api/v1/file?" + urlencode({"path": "docs/renamed.txt"})).close()
         self.request("DELETE", "/api/v1/directory?" + urlencode({"path": "docs"})).close()
 
-    def test_bearer_token_is_required(self):
+    def test_file_api_requires_the_windows_client_header(self):
         with self.assertRaises(HTTPError) as denied:
-            self.request("GET", "/api/v1/stat?path=", token=False)
-        self.assertEqual(denied.exception.code, 401)
+            self.request("GET", "/api/v1/stat?path=", drive_client=False)
+        self.assertEqual(denied.exception.code, 403)
+
+    def test_file_mutation_rejects_missing_client_header(self):
+        route = "/api/v1/create?" + urlencode({"path": "must-not-exist.txt"})
+        with self.assertRaises(HTTPError) as denied:
+            self.request("POST", route, drive_client=False)
+        self.assertEqual(denied.exception.code, 403)
+        self.assertFalse((self.root / "must-not-exist.txt").exists())
+
+    def test_file_api_works_without_a_secondary_access_code(self):
+        result = json.loads(self.request("GET", "/api/v1/stat?path=").read())
+        self.assertTrue(result["isDirectory"])
 
     def test_parent_traversal_is_rejected(self):
         with self.assertRaises(HTTPError) as denied:
@@ -108,7 +118,7 @@ class FileApiTests(unittest.TestCase):
                     pass
 
     def test_health_is_public_but_does_not_disclose_root(self):
-        result = json.loads(self.request("GET", "/api/v1/health", token=False).read())
+        result = json.loads(self.request("GET", "/api/v1/health", drive_client=False).read())
         self.assertEqual(result["status"], "ok")
         self.assertNotIn(str(self.root), json.dumps(result))
 

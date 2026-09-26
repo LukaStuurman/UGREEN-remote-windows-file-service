@@ -43,7 +43,6 @@ jobs:
           set -euo pipefail
           export DATA_PATH=/tmp/Techbase
           export UGREEN_DRIVE_REF=main
-          export UGREEN_DRIVE_TOKEN="$(openssl rand -hex 32)"
           export PUID=1000
           export PGID=10
           config="$(docker compose -f docker-compose.ugreen.yaml config --format json)"
@@ -66,8 +65,6 @@ jobs:
           image='ugreen-remote-drive:ci'
           container='ugreen-remote-drive-smoke'
           share="$RUNNER_TEMP/Techbase"
-          token="$(openssl rand -hex 32)"
-          echo "::add-mask::$token"
           mkdir -p "$share"
           cleanup() {
             docker rm --force "$container" >/dev/null 2>&1 || true
@@ -85,7 +82,6 @@ jobs:
             --pids-limit 64 \
             --memory 256m \
             --publish 127.0.0.1:18765:8080 \
-            --env "UGREEN_DRIVE_TOKEN=$token" \
             --env "TECHBASE_HOST_PATH=$share" \
             --volume "$share:/data:rw" \
             "$image"
@@ -102,10 +98,10 @@ jobs:
           done
           test "$healthy" = 1
 
-          unauthorized="$(curl --silent --output /dev/null --write-out '%{http_code}' "$list_url")"
-          test "$unauthorized" = '401'
+          forbidden="$(curl --silent --output /dev/null --write-out '%{http_code}' "$list_url")"
+          test "$forbidden" = '403'
           curl --fail --silent --show-error \
-            --header "Authorization: Bearer $token" \
+            --header 'X-UGREEN-Remote-Drive: 1' \
             "$list_url" | python -c 'import json, sys; assert json.load(sys.stdin) == []'
 
   windows-build:

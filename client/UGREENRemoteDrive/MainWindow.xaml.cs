@@ -49,10 +49,6 @@ public partial class MainWindow : Window
         SmbPathBox.Text = _settings.SmbPath;
         if (DriveLetterBox.Items.Contains(_settings.DriveLetter)) DriveLetterBox.SelectedItem = _settings.DriveLetter;
         StartupBox.IsChecked = _settings.AutoStart;
-        TokenHint.Text = string.IsNullOrEmpty(_settings.Token)
-            ? "Eenmalig nodig om alleen de Techbase-service te autoriseren. De NAS-aanmelding alleen is geen bestandstoestemming."
-            : "Toegangscode opgeslagen en met Windows DPAPI versleuteld. Laat leeg om deze te behouden.";
-
         try
         {
             Directory.CreateDirectory(SettingsStore.AppDirectory);
@@ -152,7 +148,7 @@ public partial class MainWindow : Window
     {
         if (_dokanInstance is not null) return;
         RebuildBackends();
-        if (_backends is null) throw new InvalidOperationException("Controleer het UGREENlink-adres en de toegangscode.");
+        if (_backends is null) throw new InvalidOperationException("Controleer het UGREENlink-adres.");
         await _backends.ProbeSmbAsync();
         if (!_backends.SmbReachable && _remote?.IsAuthenticated != true)
             throw new InvalidOperationException("De NAS is nog niet verbonden. Meld aan bij UGREENlink en probeer opnieuw.");
@@ -293,10 +289,6 @@ public partial class MainWindow : Window
             throw new InvalidOperationException("Ontkoppel de schijf voordat je instellingen wijzigt.");
         var urlText = RemoteUrlBox.Text.Trim();
         if (!string.IsNullOrWhiteSpace(urlText)) _ = ValidateRemoteUrl(urlText);
-        var token = string.IsNullOrWhiteSpace(urlText) ? "" :
-            string.IsNullOrWhiteSpace(TokenBox.Password) ? _settings.Token : TokenBox.Password.Trim();
-        if (!string.IsNullOrWhiteSpace(urlText) && token.Length < 32)
-            throw new InvalidOperationException("Het toegangstoken moet minstens 32 tekens lang zijn.");
         var smbPath = SmbPathBox.Text.Trim();
         if (!string.IsNullOrWhiteSpace(smbPath))
             _ = TechbaseSharePath.ValidateUncRoot(smbPath);
@@ -308,13 +300,10 @@ public partial class MainWindow : Window
             RemoteUrl = urlText,
             SmbPath = smbPath,
             DriveLetter = drive,
-            Token = token,
             AutoStart = StartupBox.IsChecked == true
         };
         SettingsStore.Save(_settings);
         UpdateStartupRegistration(_settings.AutoStart);
-        TokenBox.Clear();
-        TokenHint.Text = "Toegangscode opgeslagen en met Windows DPAPI versleuteld. Laat leeg om deze te behouden.";
         ConfigureRemote();
         if (_settings.AutoStart && !_settings.RemoteUrl.Equals(Browser.Source?.AbsoluteUri, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(_settings.RemoteUrl))
         {
@@ -322,12 +311,12 @@ public partial class MainWindow : Window
             Browser.Source = ValidateRemoteUrl(_settings.RemoteUrl);
         }
         RebuildBackends();
-        StatusText.Text = "Instellingen en versleutelde token zijn opgeslagen.";
+        StatusText.Text = "Instellingen opgeslagen.";
     }
 
     private bool TryConfigureFromSettings()
     {
-        if (string.IsNullOrWhiteSpace(_settings.RemoteUrl) || _settings.Token.Length < 32) return false;
+        if (string.IsNullOrWhiteSpace(_settings.RemoteUrl)) return false;
         try
         {
             _ = ValidateRemoteUrl(_settings.RemoteUrl);
@@ -340,19 +329,19 @@ public partial class MainWindow : Window
     private void ConfigureRemote()
     {
         if (_bridge is null) return;
-        if (string.IsNullOrWhiteSpace(_settings.RemoteUrl) || _settings.Token.Length < 32)
+        if (string.IsNullOrWhiteSpace(_settings.RemoteUrl))
         {
             _bridge.ClearConfiguration();
             return;
         }
         var uri = ValidateRemoteUrl(_settings.RemoteUrl);
-        _bridge.Configure(uri, _settings.Token);
+        _bridge.Configure(uri);
         _remote ??= new RemoteBackend(_bridge);
     }
 
     private void RebuildBackends()
     {
-        if (_remote is null && _bridge is not null && _settings.Token.Length >= 32) _remote = new RemoteBackend(_bridge);
+        if (_remote is null && _bridge is not null && !string.IsNullOrWhiteSpace(_settings.RemoteUrl)) _remote = new RemoteBackend(_bridge);
         if (_remote is null) return;
         var smb = string.IsNullOrWhiteSpace(_settings.SmbPath) ? null : new SmbBackend(_settings.SmbPath);
         _backends = new BackendSelector(_remote, smb);
@@ -366,7 +355,6 @@ public partial class MainWindow : Window
     private void SetConfigurationControlsEnabled(bool enabled)
     {
         RemoteUrlBox.IsEnabled = enabled;
-        TokenBox.IsEnabled = enabled;
         SmbPathBox.IsEnabled = enabled;
         DriveLetterBox.IsEnabled = enabled;
         StartupBox.IsEnabled = enabled;
