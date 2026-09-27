@@ -417,6 +417,22 @@ internal sealed class RemoteBridge
         IsTrustedUgreenDesktopFrame(sourceFrame, topLevelSource) &&
         IsConfiguredAuthBootstrapTarget(target, configuredServiceRoot);
 
+    internal static bool IsAllowedAutomaticTilePopupTarget(string sourceFrame, string topLevelSource,
+        Uri target, Uri expectedDesktopOrigin, Uri configuredServiceRoot) =>
+        IsTrustedUgreenDesktopFrame(sourceFrame, topLevelSource) &&
+        IsTrustedDesktopOrigin(sourceFrame, expectedDesktopOrigin) &&
+        IsTrustedDesktopOrigin(topLevelSource, expectedDesktopOrigin) &&
+        (IsConfiguredServiceRootTarget(target, configuredServiceRoot) ||
+         IsConfiguredAuthBootstrapTarget(target, configuredServiceRoot));
+
+    private static bool IsTrustedDesktopOrigin(string source, Uri expectedDesktopOrigin) =>
+        IsTrustedUgreenDesktopDocument(source) && expectedDesktopOrigin.IsAbsoluteUri &&
+        expectedDesktopOrigin.Scheme == Uri.UriSchemeHttps && expectedDesktopOrigin.IsDefaultPort &&
+        string.IsNullOrEmpty(expectedDesktopOrigin.UserInfo) &&
+        Uri.TryCreate(source, UriKind.Absolute, out var sourceUri) &&
+        sourceUri.GetLeftPart(UriPartial.Authority).Equals(
+            expectedDesktopOrigin.GetLeftPart(UriPartial.Authority), StringComparison.OrdinalIgnoreCase);
+
     internal static bool IsAllowedDiscoveredShortcutRootPopupTarget(string sourceFrame, string topLevelSource,
         Uri target) =>
         IsTrustedUgreenDesktopFrame(sourceFrame, topLevelSource) && IsDiscoveredShortcutRootTarget(target);

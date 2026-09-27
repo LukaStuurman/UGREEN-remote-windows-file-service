@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Threading;
 using DokanNet;
@@ -15,6 +16,7 @@ public partial class MainWindow : Window
 {
     private enum BrowserPage { Unknown, IntermediateBlank, ServiceRoot, Health, AuthBootstrap, Login, OtherService, Blocked }
     private sealed record PendingHttpsLoginUpgrade(Uri Target, BrowserPage EntryPage, int Generation, string ConfiguredOrigin);
+    private sealed record PendingAutomaticTileOpen(Uri DesktopOrigin, Uri ServiceRoot, int Generation);
     private readonly Dictionary<ulong, BrowserPage> _loginRedirectEligibleNavigations = new();
     private readonly Dictionary<ulong, PendingHttpsLoginUpgrade> _pendingHttpsLoginUpgrades = new();
     private readonly HashSet<ulong> _httpUpgradeAttemptedNavigations = new();
@@ -47,6 +49,8 @@ public partial class MainWindow : Window
     private Uri? _pendingAuthBootstrapTarget;
     private bool _ticketBootstrapCleanupRequired;
     private bool _ticketBootstrapCleanupInProgress;
+    private PendingAutomaticTileOpen? _pendingAutomaticTileOpen;
+    private int _automaticTileOpenAttemptedGeneration = -1;
 
     public MainWindow()
     {
@@ -110,6 +114,8 @@ public partial class MainWindow : Window
     private void Browser_NavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
     {
         _navigationGeneration++;
+        if (_pendingAutomaticTileOpen is { } automaticPermit && automaticPermit.Generation != _navigationGeneration)
+            _pendingAutomaticTileOpen = null;
         _activeNavigationId = e.NavigationId;
         if (e.Uri.Equals("about:blank", StringComparison.OrdinalIgnoreCase))
         {
@@ -290,7 +296,7 @@ public partial class MainWindow : Window
             DriveLog.Info("Top-level navigation started: page=recognized-ugreen-login.");
             StatusText.Text = _shortcutDiscoveryActive
                 ? "Meld aan bij de NAS in dit venster en open daarna de Remote Drive-tegel. Het app-adres wordt automatisch opgeslagen."
-                : "Meld aan in dit appvenster en open daarna de Remote Drive-tegel op het UGREENlink-bureaublad. De app verwerkt de snelkoppeling hier automatisch.";
+                : "Meld aan in dit appvenster. De app probeert daarna de opgeslagen Remote Drive-tegel vanzelf te openen.";
             return;
         }
         e.Cancel = true;
@@ -318,6 +324,19 @@ public partial class MainWindow : Window
             ? ClassifyNavigationForDiagnostics(requestedTarget.AbsoluteUri)
             : "invalid";
         var userInitiated = e.IsUserInitiated;
+        var automaticTileOpen = false;
+
+        if (!userInitiated && requestedTarget is not null && _pendingAutomaticTileOpen is { } automaticPermit &&
+            automaticPermit.Generation == _navigationGeneration &&
+            RemoteBridge.IsAllowedAutomaticTilePopupTarget(sourceFrame, topLevelSource, requestedTarget,
+                automaticPermit.DesktopOrigin, automaticPermit.ServiceRoot))
+        {
+            // A single exact shortcut popup may be routed after our narrowly scoped desktop-tile click.
+            // The permit is consumed before any asynchronous navigation is queued.
+            _pendingAutomaticTileOpen = null;
+            automaticTileOpen = true;
+            DriveLog.Info("One-shot automatic UGREENlink tile popup approved for the configured shortcut origin.");
+        }
 
         // Never let WebView2 create an uncontrolled popup. Approved, user-initiated shortcut
         // opens are routed back into this same WebView/profile after the event callback returns.
@@ -351,7 +370,7 @@ public partial class MainWindow : Window
             }
         }
 
-        if (!userInitiated || requestedTarget is null || _bridge is null ||
+        if ((!userInitiated && !automaticTileOpen) || requestedTarget is null || _bridge is null ||
             !TryBuildConfiguredServiceRoot(out var configuredRoot) ||
             _ticketBootstrapCleanupRequired || _ticketBootstrapCleanupInProgress)
         {
@@ -561,9 +580,12 @@ public partial class MainWindow : Window
         if (_activePage == BrowserPage.Login)
         {
             DriveLog.Info($"Top-level navigation completed: page=recognized-ugreen-login, success={e.IsSuccess}, webError={e.WebErrorStatus}.");
-            StatusText.Text = _shortcutDiscoveryActive
-                ? "Meld aan bij de NAS in dit venster en open de Remote Drive-tegel. De app vult het shortcut-adres daarna zelf in en onthoudt het."
-                : "Meld aan in dit appvenster en open daarna de Remote Drive-tegel op het UGREENlink-bureaublad. De app koppelt de schijf automatisch zodra de shortcut is bevestigd.";
+            if (!TryStartAutomaticTileOpen())
+            {
+                StatusText.Text = _shortcutDiscoveryActive
+                    ? "Meld aan bij de NAS in dit venster en open de Remote Drive-tegel. De app vult het shortcut-adres daarna zelf in en onthoudt het."
+                    : "Meld aan in dit appvenster en klik zo nodig op de Remote Drive-tegel op het UGREENlink-bureaublad.";
+            }
             return;
         }
         if (_activePage == BrowserPage.Health)
@@ -621,9 +643,10 @@ public partial class MainWindow : Window
             }
             if (completedPage == BrowserPage.Login && _activePage == BrowserPage.Login)
             {
-                StatusText.Text = navigationSucceeded
-                    ? "Meld aan in dit appvenster en open daarna de Remote Drive-tegel op het UGREENlink-bureaublad."
-                    : "De UGREENlink-aanmeldpagina kon niet worden bevestigd. Probeer de Remote Drive-tegel opnieuw.";
+                if (!TryStartAutomaticTileOpen())
+                    StatusText.Text = navigationSucceeded
+                        ? "Meld aan in dit appvenster en klik zo nodig op de Remote Drive-tegel op het UGREENlink-bureaublad."
+                        : "De UGREENlink-aanmeldpagina kon niet worden bevestigd. Klik zo nodig zelf op de Remote Drive-tegel.";
                 return;
             }
             if (completedPage == BrowserPage.Blocked)
@@ -752,11 +775,112 @@ public partial class MainWindow : Window
     {
         _activePage = BrowserPage.Login;
         _loginFlowActive = true;
-        StatusText.Text = _shortcutDiscoveryActive
-            ? "De UGREENlink-desktop is al open. Meld je zo nodig hier aan en open de Remote Drive-tegel; het shortcut-adres wordt automatisch onthouden."
-            : "De UGREENlink-desktop is al open. Meld aan in dit appvenster en open de Remote Drive-tegel; de app koppelt daarna automatisch de schijf.";
         if (_ticketBootstrapCleanupRequired)
             _ = CompleteAuthBootstrapNavigationAsync(_navigationGeneration, BrowserPage.Login, navigationSucceeded: true);
+        else if (!TryStartAutomaticTileOpen())
+            StatusText.Text = _shortcutDiscoveryActive
+                ? "De UGREENlink-desktop is al open. Meld je zo nodig hier aan en open de Remote Drive-tegel; het shortcut-adres wordt automatisch onthouden."
+                : "De UGREENlink-desktop is al open. Meld je zo nodig aan en klik op de Remote Drive-tegel als die niet vanzelf opent.";
+    }
+
+    private bool TryStartAutomaticTileOpen()
+    {
+        var core = Browser.CoreWebView2;
+        if (_shortcutDiscoveryActive || _bridge is null || core is null ||
+            _activePage != BrowserPage.Login || _ticketBootstrapCleanupRequired || _ticketBootstrapCleanupInProgress ||
+            _automaticTileOpenAttemptedGeneration == _navigationGeneration ||
+            !RemoteBridge.IsTrustedUgreenDesktopDocument(core.Source) ||
+            !TryBuildConfiguredServiceRoot(out var serviceRoot) ||
+            !Uri.TryCreate(core.Source, UriKind.Absolute, out var desktop)) return false;
+
+        _automaticTileOpenAttemptedGeneration = _navigationGeneration;
+        var desktopOrigin = new Uri(desktop.GetLeftPart(UriPartial.Authority) + "/");
+        var permit = new PendingAutomaticTileOpen(desktopOrigin, serviceRoot, _navigationGeneration);
+        _pendingAutomaticTileOpen = permit;
+        StatusText.Text = "UGREENlink is aangemeld. De app probeert de opgeslagen Remote Drive-tegel te openen…";
+        DriveLog.Info("Automatic tile discovery started on the trusted UGREENlink desktop; only an exact configured shortcut link may be clicked.");
+        _ = ClickConfiguredDesktopTileAsync(permit);
+        return true;
+    }
+
+    private async Task ClickConfiguredDesktopTileAsync(PendingAutomaticTileOpen permit)
+    {
+        try
+        {
+            var core = Browser.CoreWebView2;
+            if (core is null || _navigationGeneration != permit.Generation ||
+                !RemoteBridge.IsTrustedUgreenDesktopDocument(core.Source))
+            {
+                ClearAutomaticTilePermit(permit);
+                return;
+            }
+
+            var expectedOrigin = JsonSerializer.Serialize(permit.ServiceRoot.GetLeftPart(UriPartial.Authority));
+            var script = $$"""
+                (() => {
+                    const expectedOrigin = {{expectedOrigin}};
+                    let observer;
+                    let timeout;
+                    const stopWatching = () => {
+                        if (observer) observer.disconnect();
+                        clearTimeout(timeout);
+                    };
+                    timeout = setTimeout(stopWatching, 4000);
+                    const tryClick = () => {
+                        for (const anchor of document.querySelectorAll('a[href]')) {
+                            let url;
+                            try { url = new URL(anchor.href, location.href); } catch { continue; }
+                            const exactRoot = url.pathname === '/' && !url.search && !url.hash;
+                            const exactBootstrap = url.pathname === '/api/ugreen/auth' &&
+                                url.search.length > 1 && url.search.length <= 2049 && !url.hash;
+                            if (url.protocol !== 'https:' || url.origin !== expectedOrigin || url.username || url.password ||
+                                (url.port && url.port !== '443') || (!exactRoot && !exactBootstrap)) continue;
+                            const previousTarget = anchor.getAttribute('target');
+                            anchor.setAttribute('target', '_blank');
+                            anchor.click();
+                            if (previousTarget === null) anchor.removeAttribute('target');
+                            else anchor.setAttribute('target', previousTarget);
+                            stopWatching();
+                            return true;
+                        }
+                        return false;
+                    };
+                    if (!tryClick()) {
+                        observer = new MutationObserver(tryClick);
+                        if (document.documentElement) observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['href'] });
+                    }
+                    return true;
+                })()
+                """;
+            var result = await core.ExecuteScriptAsync(script);
+            if (!string.Equals(result, "true", StringComparison.OrdinalIgnoreCase))
+            {
+                ClearAutomaticTilePermit(permit);
+                return;
+            }
+
+            // The observer can wait briefly for the desktop tile to render. Keep the one-shot permit
+            // only for that bounded period, then fall back to an explicit tile click.
+            await Task.Delay(TimeSpan.FromSeconds(5));
+            if (_pendingAutomaticTileOpen == permit)
+            {
+                ClearAutomaticTilePermit(permit);
+                if (_navigationGeneration == permit.Generation && _activePage == BrowserPage.Login)
+                    StatusText.Text = "De tegel kon niet automatisch worden geopend. Klik één keer op Remote Drive op het UGREENlink-bureaublad.";
+            }
+        }
+        catch (Exception ex)
+        {
+            ClearAutomaticTilePermit(permit);
+            DriveLog.Error("Automatic UGREENlink tile attempt failed: " + ex.GetType().Name);
+            if (_navigationGeneration == permit.Generation && _activePage == BrowserPage.Login)
+                StatusText.Text = "De tegel kon niet automatisch worden geopend. Klik één keer op Remote Drive op het UGREENlink-bureaublad.";
+        }
+    }
+
+    private void ClearAutomaticTilePermit(PendingAutomaticTileOpen permit)
+    {
+        if (_pendingAutomaticTileOpen == permit) _pendingAutomaticTileOpen = null;
     }
 
     private async Task ProbeRemoteAfterNavigationAsync(int generation)

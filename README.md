@@ -29,7 +29,7 @@ The UGREENlink sign-in is the access boundary for the remote shortcut. Any UGREE
 4. The saved shortcut address is filled in automatically on later starts. Select **Start en koppel automatisch aan bij Windows-aanmelding** to launch in the tray and mount `U:` whenever the saved UGREENlink session and NAS shortcut are available. The app has its own WebView2 profile; it does not read Edge cookies or save your NAS password.
 5. LAN/SMB path and an alternate drive letter are optional under **Optioneel: LAN/SMB en andere schijfletter**. If configured and reachable, the `Techbase` SMB share is preferred at home; otherwise the app uses the remote API.
 
-UGREEN documents remote Docker access as opening a container's desktop shortcut while signed in with UGREENlink ([NAS remote access](https://support.ugnas.com/detail/article/en-US/86), [Docker desktop shortcuts](https://support.ugnas.com/detail/article/en-US/715)). Shortcut discovery uses that supported user click rather than a private NAS API. If UGREENlink requires a fresh shortcut activation for a session, click the tile in the app's embedded NAS desktop; the app will route the approved result into the same window.
+UGREEN documents remote Docker access as opening a container's desktop shortcut while signed in with UGREENlink ([NAS remote access](https://support.ugnas.com/detail/article/en-US/86), [Docker desktop shortcuts](https://support.ugnas.com/detail/article/en-US/715)). First-time discovery uses that supported tile action rather than a private NAS API. On reconnect, the app makes one best-effort attempt to open the exact saved Remote Drive link from the embedded desktop; if the tile is not exposed as a link or the activation fails, click it manually. UGREEN does not document an API for automatic shortcut activation, so this fallback must be verified on the actual NAS.
 
 The SMB path uses the Windows user's existing SMB authentication. The app does not store SMB credentials. The SMB field accepts only the share root `\\NASNAME\Techbase`; it rejects other shares and subfolders.
 
@@ -53,7 +53,7 @@ Directory listing and metadata, read, create, write by byte range or append, tru
 - Only give UGREENlink shortcut access to NAS accounts allowed to read and modify all of `Techbase`.
 - The container runs as a non-root UID/GID with a read-only image filesystem, no added Linux capabilities, and `no-new-privileges`.
 - The Docker host port is bound to `127.0.0.1`; use the UGREENlink shortcut for remote access and SMB for LAN access.
-- The file API accepts only the exact configured HTTPS `.ugapp.link` or `.ugdocker.link` origin. Initial NAS discovery is restricted to HTTPS UGREENlink pages and a user-initiated Remote Drive tile target; the app saves only the shortcut origin and discards its one-time query.
+- The file API accepts only the exact configured HTTPS `.ugapp.link` or `.ugdocker.link` origin. Initial NAS discovery is restricted to HTTPS UGREENlink pages and the exact Remote Drive tile target; reconnect auto-open has a single-use permit for that same saved origin. The app saves only the shortcut origin and discards its one-time query.
 - Requests are chunked to a maximum of 4 MiB. Network interruptions can fail an in-progress write; reconnect and retry from Explorer if needed.
 
 ## Build and local checks

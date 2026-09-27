@@ -69,6 +69,31 @@ public sealed class UgreenLinkSetupAddressTests
     }
 
     [TestMethod]
+    public void AutomaticTilePopupRequiresTrustedDesktopAndExactConfiguredShortcutTarget()
+    {
+        const string desktop = "https://nas.eur3.ug.link/desktop/";
+        var desktopOrigin = new Uri("https://nas.eur3.ug.link/");
+        var configuredRoot = new Uri("https://remote.ugdocker.link/");
+
+        Assert.IsTrue(RemoteBridge.IsAllowedAutomaticTilePopupTarget(
+            desktop, desktop, new Uri("https://remote.ugdocker.link/"), desktopOrigin, configuredRoot));
+        Assert.IsTrue(RemoteBridge.IsAllowedAutomaticTilePopupTarget(
+            desktop, desktop, new Uri("https://remote.ugdocker.link/api/ugreen/auth?ticket=one-time"), desktopOrigin, configuredRoot));
+        Assert.IsFalse(RemoteBridge.IsAllowedAutomaticTilePopupTarget(
+            desktop, desktop, new Uri("https://other.ugdocker.link/"), desktopOrigin, configuredRoot));
+        Assert.IsFalse(RemoteBridge.IsAllowedAutomaticTilePopupTarget(
+            desktop, desktop, new Uri("https://remote.ugdocker.link/api/v1/files"), desktopOrigin, configuredRoot));
+        Assert.IsFalse(RemoteBridge.IsAllowedAutomaticTilePopupTarget(
+            desktop, desktop, new Uri("http://remote.ugdocker.link/"), desktopOrigin, configuredRoot));
+        Assert.IsFalse(RemoteBridge.IsAllowedAutomaticTilePopupTarget(
+            "https://other.eur3.ug.link/desktop/", desktop,
+            new Uri("https://remote.ugdocker.link/"), desktopOrigin, configuredRoot));
+        Assert.IsFalse(RemoteBridge.IsAllowedAutomaticTilePopupTarget(
+            desktop, desktop, new Uri("https://remote.ugdocker.link/"),
+            new Uri("https://other.eur3.ug.link/"), configuredRoot));
+    }
+
+    [TestMethod]
     public void NasPortalNavigationIsLimitedToHttpsUgreenDomains()
     {
         Assert.IsTrue(RemoteBridge.IsUgreenLinkPortalNavigation(new Uri("https://ug.link/TechbaseNAS")));
