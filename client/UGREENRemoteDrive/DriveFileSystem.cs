@@ -7,7 +7,9 @@ namespace UGREENRemoteDrive;
 
 internal sealed class DriveFileSystem : IDokanOperations
 {
+    private const int MaxWriteChunkSize = 4 * 1024 * 1024;
     private readonly IFileBackend _backend;
+    private readonly DriveMetadataCache _metadata = new(TimeSpan.FromSeconds(1));
 
     public DriveFileSystem(BackendSelector backends) : this(backends.Current) { }
 
@@ -15,6 +17,26 @@ internal sealed class DriveFileSystem : IDokanOperations
 
     private IFileBackend Backend => _backend;
     internal string BackendKind => Backend is SmbBackend ? "LAN-SMB" : Backend is RemoteBackend ? "UGREENlink" : "injected";
+
+    private FileEntry Stat(string path)
+    {
+        if (_metadata.TryGetStat(path, out var cached)) return cached;
+        var generation = _metadata.Generation;
+        var entry = Backend.Stat(path);
+        _metadata.StoreStat(path, entry, generation);
+        return entry;
+    }
+
+    private IReadOnlyList<FileEntry> List(string path)
+    {
+        if (_metadata.TryGetList(path, out var cached)) return cached;
+        var generation = _metadata.Generation;
+        var entries = Backend.List(path);
+        _metadata.StoreList(path, entries, generation);
+        return entries;
+    }
+
+    private void InvalidateMetadata() => _metadata.Invalidate();
 
     public NtStatus CreateFile(string fileName, DokanNet.FileAccess access, FileShare share, FileMode mode,
         FileOptions options, FileAttributes attributes, IDokanFileInfo info)
@@ -34,7 +56,7 @@ internal sealed class DriveFileSystem : IDokanOperations
             FileEntry? entry = null;
             try
             {
-                entry = Backend.Stat(fileName);
+                entry = Stat(fileName);
                 entryClass = EntryClass(entry);
             }
             catch (DriveApiException ex) when (ex.Status == 404) { entryClass = "missing"; }
@@ -59,6 +81,7 @@ internal sealed class DriveFileSystem : IDokanOperations
                 {
                     if (mode is not (FileMode.CreateNew or FileMode.Create or FileMode.OpenOrCreate)) return Finish(DokanResult.PathNotFound);
                     Backend.CreateDirectory(fileName);
+                    InvalidateMetadata();
                     entryClass = "directory-created";
                     return Finish(DokanResult.Success);
                 }
@@ -72,20 +95,31 @@ internal sealed class DriveFileSystem : IDokanOperations
                 case FileMode.CreateNew:
                     if (entry is not null) return Finish(DokanResult.FileExists);
                     Backend.CreateFile(fileName);
+                    InvalidateMetadata();
                     return Finish(DokanResult.Success);
                 case FileMode.Create:
                     if (entry is null) Backend.CreateFile(fileName);
                     else Backend.Resize(fileName, 0);
+                    InvalidateMetadata();
                     return Finish(DokanResult.Success);
                 case FileMode.OpenOrCreate:
-                    if (entry is null) Backend.CreateFile(fileName);
+                    if (entry is null)
+                    {
+                        Backend.CreateFile(fileName);
+                        InvalidateMetadata();
+                    }
                     return Finish(entry is null ? DokanResult.Success : DokanResult.AlreadyExists);
                 case FileMode.Truncate:
                     if (entry is null) return Finish(DokanResult.FileNotFound);
                     Backend.Resize(fileName, 0);
+                    InvalidateMetadata();
                     return Finish(DokanResult.Success);
                 case FileMode.Append:
-                    if (entry is null) Backend.CreateFile(fileName);
+                    if (entry is null)
+                    {
+                        Backend.CreateFile(fileName);
+                        InvalidateMetadata();
+                    }
                     return Finish(DokanResult.Success);
                 default:
                     return Finish(DokanResult.InvalidParameter);
@@ -101,7 +135,11 @@ internal sealed class DriveFileSystem : IDokanOperations
     public void Cleanup(string fileName, IDokanFileInfo info)
     {
         if (!info.DeletePending) return;
-        try { Backend.Delete(fileName, info.IsDirectory); }
+        try
+        {
+            Backend.Delete(fileName, info.IsDirectory);
+            InvalidateMetadata();
+        }
         catch (Exception ex) { DriveLog.Error($"Cleanup failed ({ex.GetType().Name})."); }
     }
 
@@ -131,12 +169,15 @@ internal sealed class DriveFileSystem : IDokanOperations
             var written = 0;
             while (written < buffer.Length)
             {
-                var count = Math.Min(1024 * 1024, buffer.Length - written);
+                // The server accepts up to 4 MiB per request. Using the full limit
+                // avoids extra remote round trips and repeated SMB file opens.
+                var count = Math.Min(MaxWriteChunkSize, buffer.Length - written);
                 var chunk = written == 0 && count == buffer.Length ? buffer : buffer.AsSpan(written, count).ToArray();
                 var at = actualOffset < 0 ? -1 : actualOffset + written;
                 var current = Backend.Write(fileName, at, chunk);
                 if (current <= 0) break;
                 written += current;
+                InvalidateMetadata();
                 if (current < chunk.Length) break;
             }
             bytesWritten = written;
@@ -152,7 +193,7 @@ internal sealed class DriveFileSystem : IDokanOperations
         var isRoot = IsRootPath(fileName);
         try
         {
-            var entry = Backend.Stat(fileName);
+            var entry = Stat(fileName);
             fileInfo = ToDokan(entry, fileName);
             if (isRoot)
                 DriveLog.Info($"Root callback: backend={BackendKind}; operation=GetFileInformation; status={DokanResult.Success}; entry={EntryClass(entry)}; empty-name={string.IsNullOrEmpty(entry.Name)}.");
@@ -173,7 +214,7 @@ internal sealed class DriveFileSystem : IDokanOperations
         var isRoot = IsRootPath(fileName);
         try
         {
-            var entries = Backend.List(fileName);
+            var entries = List(fileName);
             files = entries.Select(entry => ToDokan(entry, entry.Name)).ToArray();
             if (isRoot)
             {
@@ -222,6 +263,7 @@ internal sealed class DriveFileSystem : IDokanOperations
         try
         {
             Backend.SetModifiedTime(fileName, new DateTimeOffset(lastWriteTime.Value.ToUniversalTime()));
+            InvalidateMetadata();
             return DokanResult.Success;
         }
         catch (Exception ex) { return Map(ex, nameof(SetFileTime)); }
@@ -231,7 +273,7 @@ internal sealed class DriveFileSystem : IDokanOperations
     {
         try
         {
-            var entry = Backend.Stat(fileName);
+            var entry = Stat(fileName);
             if (entry.IsDirectory) return DokanResult.NotADirectory;
             info.DeletePending = true;
             return DokanResult.Success;
@@ -243,8 +285,9 @@ internal sealed class DriveFileSystem : IDokanOperations
     {
         try
         {
-            var entry = Backend.Stat(fileName);
+            var entry = Stat(fileName);
             if (!entry.IsDirectory) return DokanResult.NotADirectory;
+            // Emptiness is a safety decision: do not use the short-lived Explorer cache.
             if (Backend.List(fileName).Count != 0) return DokanResult.DirectoryNotEmpty;
             info.DeletePending = true;
             return DokanResult.Success;
@@ -257,6 +300,7 @@ internal sealed class DriveFileSystem : IDokanOperations
         try
         {
             Backend.Rename(oldName, newName, replace);
+            InvalidateMetadata();
             return DokanResult.Success;
         }
         catch (Exception ex) { return Map(ex, nameof(MoveFile)); }
@@ -268,6 +312,7 @@ internal sealed class DriveFileSystem : IDokanOperations
         {
             if (length < 0) return DokanResult.InvalidParameter;
             Backend.Resize(fileName, length);
+            InvalidateMetadata();
             return DokanResult.Success;
         }
         catch (Exception ex) { return Map(ex, nameof(SetEndOfFile)); }

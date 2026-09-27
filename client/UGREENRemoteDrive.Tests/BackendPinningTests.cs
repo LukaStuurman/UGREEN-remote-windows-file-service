@@ -62,7 +62,7 @@ public sealed class BackendPinningTests
         Assert.IsTrue(entries[0].Attributes.HasFlag(FileAttributes.Directory));
 
         Assert.AreEqual(1, expectedBackend.GetSpaceCalls);
-        Assert.AreEqual(2, expectedBackend.StatCalls);
+        Assert.AreEqual(1, expectedBackend.StatCalls, "The root open and immediate metadata lookup share a short-lived cache entry.");
         Assert.AreEqual(1, expectedBackend.ListCalls);
         Assert.AreEqual(0, otherBackend.GetSpaceCalls);
         Assert.AreEqual(0, otherBackend.StatCalls);
