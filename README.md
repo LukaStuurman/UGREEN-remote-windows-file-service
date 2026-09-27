@@ -77,3 +77,5 @@ The Dokany driver is not installed by the build. Install it from the official Do
 Client settings and the dedicated WebView2 profile live under `%LOCALAPPDATA%\UGREEN Remote Drive`. Logs are written under `%LOCALAPPDATA%\UGREEN Remote Drive\logs`; the client does not log file names, request bodies, or cookies. A legacy encrypted access token from an older version is ignored and discarded when settings are next saved.
 
 The server logs client IP, method, API route, status, and byte count. It does not log query strings containing file paths, request bodies, or cookies.
+
+For read-only diagnosis of blank WebView/login redirects, Dokany root errors, backend selection, and verification of the Techbase mount root, see [Drive diagnostics and root verification](docs/drive-diagnostics.md).
