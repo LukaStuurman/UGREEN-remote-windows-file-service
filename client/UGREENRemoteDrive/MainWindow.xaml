@@ -21,10 +21,10 @@
         </StackPanel>
 
         <StackPanel Grid.Row="1" Margin="0,0,0,10">
-            <TextBlock Text="UGREENlink-adres van de NAS Docker-snelkoppeling" FontWeight="SemiBold" />
+            <TextBlock Text="UGREENlink-adres van je NAS of de Remote Drive-snelkoppeling" FontWeight="SemiBold" />
             <TextBox x:Name="RemoteUrlBox" Height="32" Margin="0,4,0,0" VerticalContentAlignment="Center"
-                     ToolTip="Plak hier het HTTPS-adres van je UGREEN Docker-snelkoppeling." />
-            <TextBlock Text="Je UGREENlink-aanmelding is voldoende; er is geen aparte toegangscode meer nodig."
+                     ToolTip="Vul https://ug.link/… in, meld aan en open zelf de Remote Drive-tegel. De app onthoudt daarna automatisch het aparte app-adres." />
+            <TextBlock Text="Handiger: vul https://ug.link/… in. Meld daarna aan in dit venster en klik één keer op de Remote Drive-tegel; het app-adres wordt automatisch onthouden. Geen aparte toegangscode nodig."
                        FontSize="11" Foreground="#666" Margin="0,3,0,0" TextWrapping="Wrap" />
         </StackPanel>
 

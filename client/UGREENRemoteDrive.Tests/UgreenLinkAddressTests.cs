@@ -22,6 +22,8 @@ public sealed class UgreenLinkAddressTests
             "https://ugapp.link/",
             "https://nas.ugapp.link.example.com/",
             "https://nas.ugdocker.link.example.com/",
+            "https://nas.ugdocker.link:8443/",
+            "https://user@nas.ugdocker.link/",
             "https://example.com/"
         })
         {

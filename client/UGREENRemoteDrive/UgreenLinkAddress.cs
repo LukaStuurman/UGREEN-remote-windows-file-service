@@ -4,7 +4,8 @@ internal static class UgreenLinkAddress
 {
     public static Uri Validate(string value)
     {
-        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || !IsAllowedOrigin(uri))
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || !IsAllowedOrigin(uri) ||
+            !uri.IsDefaultPort || !string.IsNullOrEmpty(uri.UserInfo))
             throw new InvalidOperationException(
                 "Plak het HTTPS-adres van de UGREENlink-snelkoppeling (ugapp.link of ugdocker.link).");
         return uri;

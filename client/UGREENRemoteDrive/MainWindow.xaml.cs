@@ -43,6 +43,7 @@ public partial class MainWindow : Window
     private int? _healthResponseStatus;
     private BrowserPage _activePage;
     private bool _serviceNavigationStarted;
+    private bool _shortcutDiscoveryActive;
     private Uri? _pendingAuthBootstrapTarget;
     private bool _ticketBootstrapCleanupRequired;
     private bool _ticketBootstrapCleanupInProgress;
@@ -64,7 +65,7 @@ public partial class MainWindow : Window
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         _settings = SettingsStore.Load();
-        RemoteUrlBox.Text = _settings.RemoteUrl;
+        RemoteUrlBox.Text = string.IsNullOrWhiteSpace(_settings.RemoteUrl) ? _settings.NasPortalUrl : _settings.RemoteUrl;
         SmbPathBox.Text = _settings.SmbPath;
         if (DriveLetterBox.Items.Contains(_settings.DriveLetter)) DriveLetterBox.SelectedItem = _settings.DriveLetter;
         StartupBox.IsChecked = _settings.AutoStart;
@@ -97,9 +98,13 @@ public partial class MainWindow : Window
             Browser.Source = new Uri(_bridge!.BuildServiceRootUrl());
             StatusText.Text = "UGREENlink openen. Meld aan in dit appvenster; Edge-aanmelding wordt niet overgenomen.";
         }
+        else if (TryStartSavedNasPortalDiscovery())
+        {
+            // Keep the window visible so a first-time sign-in and shortcut selection can finish.
+        }
         RebuildBackends();
         _statusTimer.Start();
-        if (Environment.GetCommandLineArgs().Contains("--minimized", StringComparer.OrdinalIgnoreCase)) Hide();
+        if (!_shortcutDiscoveryActive && Environment.GetCommandLineArgs().Contains("--minimized", StringComparer.OrdinalIgnoreCase)) Hide();
     }
 
     private void Browser_NavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
@@ -194,6 +199,14 @@ public partial class MainWindow : Window
             StatusText.Text = "Alleen beveiligde HTTPS-pagina's van de NAS-shortcut of UGREENlink-aanmelding zijn toegestaan.";
             return;
         }
+        if (_shortcutDiscoveryActive && RemoteBridge.IsUgreenLinkPortalNavigation(uri))
+        {
+            _activePage = BrowserPage.Login;
+            _loginFlowActive = true;
+            DriveLog.Info("UGREENlink NAS portal navigation allowed during first-time shortcut discovery.");
+            StatusText.Text = "Meld aan bij de NAS in dit venster en open daarna de Remote Drive-tegel. Het app-adres wordt automatisch opgeslagen.";
+            return;
+        }
         if (_bridge?.IsConfiguredServiceOrigin(uri) == true)
         {
             var navigatingFromLogin = _activePage == BrowserPage.Login;
@@ -275,7 +288,9 @@ public partial class MainWindow : Window
             _activePage = BrowserPage.Login;
             _loginFlowActive = true;
             DriveLog.Info("Top-level navigation started: page=recognized-ugreen-login.");
-            StatusText.Text = "Meld je aan in het appvenster; Edge-aanmelding wordt niet overgenomen. Klik daarna op Verbinden.";
+            StatusText.Text = _shortcutDiscoveryActive
+                ? "Meld aan bij de NAS in dit venster en open daarna de Remote Drive-tegel. Het app-adres wordt automatisch opgeslagen."
+                : "Meld aan in dit appvenster en open daarna de Remote Drive-tegel op het UGREENlink-bureaublad. De app verwerkt de snelkoppeling hier automatisch.";
             return;
         }
         e.Cancel = true;
@@ -320,6 +335,20 @@ public partial class MainWindow : Window
                 $"userinfo-absent={comparison.UserInfoAbsent}, ugreen-docker-host={comparison.UgreenDockerHost}, " +
                 $"exact-auth-bootstrap-path={comparison.ExactAuthBootstrapPath}, " +
                 $"query-nonempty-bounded={comparison.NonemptyBoundedQuery}.");
+        }
+
+        if (_shortcutDiscoveryActive && userInitiated && requestedTarget is not null && _bridge is not null &&
+            !_ticketBootstrapCleanupRequired && !_ticketBootstrapCleanupInProgress)
+        {
+            var discoverRoot = RemoteBridge.IsAllowedDiscoveredShortcutRootPopupTarget(
+                sourceFrame, topLevelSource, requestedTarget);
+            var discoverAuthBootstrap = RemoteBridge.IsAllowedDiscoveredAuthBootstrapPopupTarget(
+                sourceFrame, topLevelSource, requestedTarget);
+            if (discoverRoot || discoverAuthBootstrap)
+            {
+                QueueDiscoveredShortcutPopup(sourceFrame, requestedTarget, discoverRoot, discoverAuthBootstrap);
+                return;
+            }
         }
 
         if (!userInitiated || requestedTarget is null || _bridge is null ||
@@ -387,6 +416,60 @@ public partial class MainWindow : Window
                 if (ReferenceEquals(_pendingAuthBootstrapTarget, requestedTarget)) _pendingAuthBootstrapTarget = null;
                 DriveLog.Error("Approved shortcut navigation failed: " + ex.GetType().Name);
                 StatusText.Text = "De Remote Drive-snelkoppeling kon niet in dit venster worden geopend.";
+            }
+        }));
+    }
+
+    private void QueueDiscoveredShortcutPopup(string sourceFrame, Uri target, bool openRoot, bool openAuthBootstrap)
+    {
+        var scheduledGeneration = _navigationGeneration;
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        {
+            var core = Browser.CoreWebView2;
+            if (core is null || _bridge is null || !_shortcutDiscoveryActive ||
+                _navigationGeneration != scheduledGeneration ||
+                !(openRoot
+                    ? RemoteBridge.IsAllowedDiscoveredShortcutRootPopupTarget(sourceFrame, core.Source, target)
+                    : RemoteBridge.IsAllowedDiscoveredAuthBootstrapPopupTarget(sourceFrame, core.Source, target)))
+            {
+                DriveLog.Info("Discovered UGREENlink shortcut popup discarded after source revalidation failed.");
+                StatusText.Text = "De tegel is gewijzigd of niet de Remote Drive-snelkoppeling. Probeer de tegel opnieuw.";
+                return;
+            }
+
+            try
+            {
+                // Persist only the stable shortcut origin. Never save the one-time ticket/query.
+                var root = new Uri(target.GetLeftPart(UriPartial.Authority) + "/");
+                _settings.RemoteUrl = root.AbsoluteUri;
+                SettingsStore.Save(_settings);
+                RemoteUrlBox.Text = root.AbsoluteUri;
+                ConfigureRemote();
+                RebuildBackends();
+                _shortcutDiscoveryActive = false;
+                _connectAndMountRequested = true;
+                _loginFlowActive = true;
+
+                if (openAuthBootstrap)
+                {
+                    _pendingAuthBootstrapTarget = target;
+                    StatusText.Text = "Remote Drive gevonden. De tijdelijke UGREENlink-aanmelding wordt veilig afgerond.";
+                    DriveLog.Info("UGREENlink shortcut host discovered from an approved desktop tile; one-time query omitted from settings and logs.");
+                }
+                else
+                {
+                    StatusText.Text = "Remote Drive-adres gevonden en onthouden. Verbinding controleren…";
+                    DriveLog.Info("UGREENlink shortcut host discovered from an approved desktop tile; only its origin was saved.");
+                }
+
+                core.Navigate(target.AbsoluteUri);
+                if (openAuthBootstrap) _ = ExpireAuthBootstrapPermitAsync(target, scheduledGeneration);
+            }
+            catch (Exception ex)
+            {
+                if (ReferenceEquals(_pendingAuthBootstrapTarget, target)) _pendingAuthBootstrapTarget = null;
+                DriveLog.Error("Discovered UGREENlink shortcut could not be saved/opened: " + ex.GetType().Name);
+                StatusText.Text = "Het Remote Drive-adres kon niet worden onthouden. Controleer de app-instellingen en probeer opnieuw.";
             }
         }));
     }
@@ -478,7 +561,9 @@ public partial class MainWindow : Window
         if (_activePage == BrowserPage.Login)
         {
             DriveLog.Info($"Top-level navigation completed: page=recognized-ugreen-login, success={e.IsSuccess}, webError={e.WebErrorStatus}.");
-            StatusText.Text = "Meld je aan in het appvenster; Edge-aanmelding wordt niet overgenomen. Klik daarna op Verbinden.";
+            StatusText.Text = _shortcutDiscoveryActive
+                ? "Meld aan bij de NAS in dit venster en open de Remote Drive-tegel. De app vult het shortcut-adres daarna zelf in en onthoudt het."
+                : "Meld aan in dit appvenster en open daarna de Remote Drive-tegel op het UGREENlink-bureaublad. De app koppelt de schijf automatisch zodra de shortcut is bevestigd.";
             return;
         }
         if (_activePage == BrowserPage.Health)
@@ -537,8 +622,8 @@ public partial class MainWindow : Window
             if (completedPage == BrowserPage.Login && _activePage == BrowserPage.Login)
             {
                 StatusText.Text = navigationSucceeded
-                    ? "Meld je aan in het appvenster; Edge-aanmelding wordt niet overgenomen. Klik daarna op Verbinden."
-                    : "De UGREENlink-aanmeldpagina kon niet worden bevestigd. Klik op Verbinden om opnieuw te proberen.";
+                    ? "Meld aan in dit appvenster en open daarna de Remote Drive-tegel op het UGREENlink-bureaublad."
+                    : "De UGREENlink-aanmeldpagina kon niet worden bevestigd. Probeer de Remote Drive-tegel opnieuw.";
                 return;
             }
             if (completedPage == BrowserPage.Blocked)
@@ -667,7 +752,9 @@ public partial class MainWindow : Window
     {
         _activePage = BrowserPage.Login;
         _loginFlowActive = true;
-        StatusText.Text = "De UGREENlink-desktop is al open. Edge-aanmelding wordt niet gedeeld. Meld je zo nodig hier aan, open de Remote Drive-snelkoppeling en klik op Verbinden.";
+        StatusText.Text = _shortcutDiscoveryActive
+            ? "De UGREENlink-desktop is al open. Meld je zo nodig hier aan en open de Remote Drive-tegel; het shortcut-adres wordt automatisch onthouden."
+            : "De UGREENlink-desktop is al open. Meld aan in dit appvenster en open de Remote Drive-tegel; de app koppelt daarna automatisch de schijf.";
         if (_ticketBootstrapCleanupRequired)
             _ = CompleteAuthBootstrapNavigationAsync(_navigationGeneration, BrowserPage.Login, navigationSucceeded: true);
     }
@@ -725,7 +812,16 @@ public partial class MainWindow : Window
             _autoMountAttempted = false;
             SaveSettingsFromForm(navigateToRemote: false);
             if (string.IsNullOrWhiteSpace(_settings.RemoteUrl))
-                throw new InvalidOperationException("Plak eerst het UGREENlink-adres van de NAS Docker-snelkoppeling.");
+            {
+                if (string.IsNullOrWhiteSpace(_settings.NasPortalUrl))
+                    throw new InvalidOperationException("Vul eerst het UGREENlink-adres van de NAS of de Remote Drive-snelkoppeling in.");
+                _shortcutDiscoveryActive = true;
+                _loginFlowActive = true;
+                _healthNavigationAttempted = false;
+                Browser.Source = UgreenLinkSetupAddress.Parse(_settings.NasPortalUrl).Address;
+                StatusText.Text = "NAS openen. Meld aan in dit venster en klik daarna op de Remote Drive-tegel; het shortcut-adres wordt automatisch onthouden.";
+                return;
+            }
             ConfigureRemote();
             _healthNavigationAttempted = false;
             _loginFlowActive = false;
@@ -878,7 +974,7 @@ public partial class MainWindow : Window
             else if (result.LoginRedirect)
             {
                 _loginFlowActive = true;
-                StatusText.Text = "Meld je aan in het appvenster; Edge-aanmelding wordt niet overgenomen. Klik daarna op Verbinden.";
+                StatusText.Text = "Meld aan in dit appvenster en open daarna de Remote Drive-tegel op het UGREENlink-bureaublad.";
             }
             else if (IsVisible) StatusText.Text = RemoteAuthenticationFailureText(result, _connectAndMountRequested);
         }
@@ -904,8 +1000,8 @@ public partial class MainWindow : Window
     {
         if (result.LoginRedirect)
             return mountRequested
-                ? "UGREENlink stuurde door naar aanmelden. Meld je aan in het appvenster; Edge-aanmelding wordt niet overgenomen. Daarna wordt de schijf opnieuw geprobeerd."
-                : "UGREENlink stuurde door naar aanmelden. Meld je aan in het appvenster; Edge-aanmelding wordt niet overgenomen.";
+                ? "UGREENlink stuurde door naar aanmelden. Meld aan in dit appvenster en open daarna de Remote Drive-tegel; de schijf wordt daarna opnieuw geprobeerd."
+                : "UGREENlink stuurde door naar aanmelden. Meld aan in dit appvenster en open daarna de Remote Drive-tegel.";
 
         if (result.FailureClass == "InvalidRootStatResponse")
             return "De NAS antwoordde met HTTP 200, maar gaf geen geldige metadata voor de Techbase-root terug; aanmelden is niet bevestigd.";
@@ -942,7 +1038,7 @@ public partial class MainWindow : Window
         if (_dokanInstance is not null)
             throw new InvalidOperationException("Ontkoppel de schijf voordat je instellingen wijzigt.");
         var urlText = RemoteUrlBox.Text.Trim();
-        if (!string.IsNullOrWhiteSpace(urlText)) _ = ValidateRemoteUrl(urlText);
+        var setupTarget = UgreenLinkSetupAddress.Parse(urlText);
         var smbPath = SmbPathBox.Text.Trim();
         if (!string.IsNullOrWhiteSpace(smbPath))
             _ = TechbaseSharePath.ValidateUncRoot(smbPath);
@@ -951,7 +1047,8 @@ public partial class MainWindow : Window
 
         _settings = new DriveSettings
         {
-            RemoteUrl = urlText,
+            RemoteUrl = setupTarget.Kind == UgreenLinkSetupKind.Shortcut ? setupTarget.Address.AbsoluteUri : "",
+            NasPortalUrl = setupTarget.Kind == UgreenLinkSetupKind.NasPortal ? setupTarget.Address.AbsoluteUri : "",
             SmbPath = smbPath,
             DriveLetter = drive,
             AutoStart = StartupBox.IsChecked == true
@@ -979,12 +1076,35 @@ public partial class MainWindow : Window
         catch { return false; }
     }
 
+    private bool TryStartSavedNasPortalDiscovery()
+    {
+        if (string.IsNullOrWhiteSpace(_settings.NasPortalUrl)) return false;
+        try
+        {
+            var portal = UgreenLinkSetupAddress.Parse(_settings.NasPortalUrl);
+            if (portal.Kind != UgreenLinkSetupKind.NasPortal) return false;
+            _shortcutDiscoveryActive = true;
+            _loginFlowActive = true;
+            Browser.Source = portal.Address;
+            StatusText.Text = "Meld aan bij de NAS in dit venster en open daarna de Remote Drive-tegel. Het app-adres wordt automatisch onthouden.";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            DriveLog.Error("Saved UGREENlink NAS portal address is invalid: " + ex.GetType().Name);
+            return false;
+        }
+    }
+
     private void ConfigureRemote()
     {
         if (_bridge is null) return;
         if (string.IsNullOrWhiteSpace(_settings.RemoteUrl))
         {
             _bridge.ClearConfiguration();
+            _remote = null;
+            _backends = null;
+            UpdateBackendText();
             return;
         }
         var uri = ValidateRemoteUrl(_settings.RemoteUrl);

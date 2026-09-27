@@ -372,6 +372,12 @@ internal sealed class RemoteBridge
         (uri.AbsolutePath.Equals("/desktop", StringComparison.OrdinalIgnoreCase) ||
          uri.AbsolutePath.Equals("/desktop/", StringComparison.OrdinalIgnoreCase));
 
+    internal static bool IsUgreenLinkPortalNavigation(Uri uri) => uri.Scheme == Uri.UriSchemeHttps && uri.IsDefaultPort &&
+        string.IsNullOrEmpty(uri.UserInfo) && uri.Query.Length <= 2049 && IsAllowedDesktopFragment(uri) &&
+        uri.AbsolutePath.Length <= 2048 &&
+        (uri.Host.Equals("ug.link", StringComparison.OrdinalIgnoreCase) ||
+         uri.Host.EndsWith(".ug.link", StringComparison.OrdinalIgnoreCase));
+
     internal static bool IsExpectedHttpLoginRedirect(Uri uri) => uri.Scheme == Uri.UriSchemeHttp &&
         uri.Host.EndsWith(".ug.link", StringComparison.OrdinalIgnoreCase) &&
         !uri.Host.Equals("ug.link", StringComparison.OrdinalIgnoreCase) && uri.IsDefaultPort &&
@@ -411,6 +417,25 @@ internal sealed class RemoteBridge
         IsTrustedUgreenDesktopFrame(sourceFrame, topLevelSource) &&
         IsConfiguredAuthBootstrapTarget(target, configuredServiceRoot);
 
+    internal static bool IsAllowedDiscoveredShortcutRootPopupTarget(string sourceFrame, string topLevelSource,
+        Uri target) =>
+        IsTrustedUgreenDesktopFrame(sourceFrame, topLevelSource) && IsDiscoveredShortcutRootTarget(target);
+
+    internal static bool IsAllowedDiscoveredAuthBootstrapPopupTarget(string sourceFrame, string topLevelSource,
+        Uri target) =>
+        IsTrustedUgreenDesktopFrame(sourceFrame, topLevelSource) && IsDiscoveredAuthBootstrapTarget(target);
+
+    internal static bool IsDiscoveredShortcutRootTarget(Uri target) =>
+        UgreenLinkAddress.IsAllowedOrigin(target) && target.IsDefaultPort &&
+        string.IsNullOrEmpty(target.UserInfo) && string.IsNullOrEmpty(target.Query) &&
+        string.IsNullOrEmpty(target.Fragment) && target.AbsolutePath == "/";
+
+    internal static bool IsDiscoveredAuthBootstrapTarget(Uri target) =>
+        UgreenLinkAddress.IsAllowedOrigin(target) && target.IsDefaultPort &&
+        string.IsNullOrEmpty(target.UserInfo) && string.IsNullOrEmpty(target.Fragment) &&
+        target.AbsolutePath.Equals("/api/ugreen/auth", StringComparison.Ordinal) &&
+        target.Query.Length is > 1 and <= 2049;
+
     internal static bool IsConfiguredAuthBootstrapTarget(Uri target, Uri configuredServiceRoot) =>
         IsAllowedOrigin(target, configuredServiceRoot) && target.IsDefaultPort &&
         string.IsNullOrEmpty(target.UserInfo) && string.IsNullOrEmpty(target.Fragment) &&
@@ -443,7 +468,7 @@ internal sealed class RemoteBridge
         string.IsNullOrEmpty(uri.UserInfo) && string.IsNullOrEmpty(uri.Query) &&
         string.IsNullOrEmpty(uri.Fragment) && uri.AbsolutePath == "/";
 
-    private static bool IsTrustedUgreenDesktopFrame(string frameSource, string topLevelSource)
+    internal static bool IsTrustedUgreenDesktopFrame(string frameSource, string topLevelSource)
     {
         if (!Uri.TryCreate(frameSource, UriKind.Absolute, out var frame) ||
             !Uri.TryCreate(topLevelSource, UriKind.Absolute, out var topLevel) ||
