@@ -125,6 +125,8 @@ class FileApiTests(unittest.TestCase):
     def test_techbase_host_path_must_be_absolute_and_named_techbase(self):
         for path in (
             "relative/Techbase",
+            "C:/Techbase",
+            r"C:\Techbase",
             "/volume1/OtherShare",
             "/volume1/techbase",
             "/volume1/Techbase/../OtherShare",

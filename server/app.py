@@ -10,7 +10,7 @@ import shutil
 import stat
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import parse_qs, urlsplit
 
 VERSION = "0.2.0"
@@ -30,10 +30,11 @@ class ApiError(Exception):
 
 def validate_techbase_host_path(raw: str) -> None:
     """Fail closed unless the configured host bind source is the Techbase share path."""
-    if not raw or "\\" in raw or not os.path.isabs(raw):
+    posix_path = PurePosixPath(raw) if raw else PurePosixPath()
+    if not raw or "\\" in raw or not posix_path.is_absolute():
         raise ValueError("TECHBASE_HOST_PATH must be an absolute NAS host path.")
     parts = raw.split("/")
-    if any(part == ".." for part in parts) or Path(raw).name != "Techbase":
+    if any(part == ".." for part in parts) or posix_path.name != "Techbase":
         raise ValueError("TECHBASE_HOST_PATH must point directly to the Techbase share.")
 
 

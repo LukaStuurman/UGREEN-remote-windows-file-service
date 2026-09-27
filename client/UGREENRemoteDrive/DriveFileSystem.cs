@@ -5,61 +5,97 @@ using DokanNet;
 
 namespace UGREENRemoteDrive;
 
-internal sealed class DriveFileSystem(BackendSelector backends) : IDokanOperations
+internal sealed class DriveFileSystem : IDokanOperations
 {
-    private IFileBackend Backend => backends.Current;
+    private readonly IFileBackend _backend;
+
+    public DriveFileSystem(BackendSelector backends) : this(backends.Current) { }
+
+    internal DriveFileSystem(IFileBackend backend) => _backend = backend;
+
+    private IFileBackend Backend => _backend;
+    internal string BackendKind => Backend is SmbBackend ? "LAN-SMB" : Backend is RemoteBackend ? "UGREENlink" : "injected";
 
     public NtStatus CreateFile(string fileName, DokanNet.FileAccess access, FileShare share, FileMode mode,
         FileOptions options, FileAttributes attributes, IDokanFileInfo info)
     {
+        var isRoot = IsRootPath(fileName);
+        var directoryBefore = info.IsDirectory;
+        var entryClass = "unknown";
+        NtStatus Finish(NtStatus status)
+        {
+            if (isRoot)
+                DriveLog.Info($"Root callback: backend={BackendKind}; operation=CreateFile; status={status}; entry={entryClass}; mode={mode}; directory-before={directoryBefore}; directory-after={info.IsDirectory}.");
+            return status;
+        }
+
         try
         {
             FileEntry? entry = null;
-            try { entry = Backend.Stat(fileName); }
-            catch (DriveApiException ex) when (ex.Status == 404) { }
-            catch (FileNotFoundException) { }
-            catch (DirectoryNotFoundException) { }
+            try
+            {
+                entry = Backend.Stat(fileName);
+                entryClass = EntryClass(entry);
+            }
+            catch (DriveApiException ex) when (ex.Status == 404) { entryClass = "missing"; }
+            catch (FileNotFoundException) { entryClass = "missing"; }
+            catch (DirectoryNotFoundException) { entryClass = "missing"; }
+
+            // A failed root lookup must never turn an Explorer open into a remote create.
+            if (isRoot && entry is null) return Finish(DokanResult.PathNotFound);
+
+            // Dokan requires the filesystem to set IsDirectory when metadata proves
+            // that the target is a folder; the incoming flag alone is not sufficient.
+            if (entry is { IsDirectory: true })
+            {
+                info.IsDirectory = true;
+                return Finish(mode == FileMode.CreateNew ? DokanResult.AlreadyExists : DokanResult.Success);
+            }
 
             if (info.IsDirectory)
             {
-                if (entry is { IsDirectory: false }) return DokanResult.NotADirectory;
+                if (entry is { IsDirectory: false }) return Finish(DokanResult.NotADirectory);
                 if (entry is null)
                 {
-                    if (mode is not (FileMode.CreateNew or FileMode.Create or FileMode.OpenOrCreate)) return DokanResult.PathNotFound;
+                    if (mode is not (FileMode.CreateNew or FileMode.Create or FileMode.OpenOrCreate)) return Finish(DokanResult.PathNotFound);
                     Backend.CreateDirectory(fileName);
-                    return DokanResult.Success;
+                    entryClass = "directory-created";
+                    return Finish(DokanResult.Success);
                 }
-                return mode == FileMode.CreateNew ? DokanResult.AlreadyExists : DokanResult.Success;
+                return Finish(mode == FileMode.CreateNew ? DokanResult.AlreadyExists : DokanResult.Success);
             }
 
-                if (entry is { IsDirectory: true }) return DokanResult.NotADirectory;
             switch (mode)
             {
                 case FileMode.Open:
-                    return entry is null ? DokanResult.FileNotFound : DokanResult.Success;
+                    return Finish(entry is null ? DokanResult.FileNotFound : DokanResult.Success);
                 case FileMode.CreateNew:
-                    if (entry is not null) return DokanResult.FileExists;
+                    if (entry is not null) return Finish(DokanResult.FileExists);
                     Backend.CreateFile(fileName);
-                    return DokanResult.Success;
+                    return Finish(DokanResult.Success);
                 case FileMode.Create:
                     if (entry is null) Backend.CreateFile(fileName);
                     else Backend.Resize(fileName, 0);
-                    return DokanResult.Success;
+                    return Finish(DokanResult.Success);
                 case FileMode.OpenOrCreate:
                     if (entry is null) Backend.CreateFile(fileName);
-                    return entry is null ? DokanResult.Success : DokanResult.AlreadyExists;
+                    return Finish(entry is null ? DokanResult.Success : DokanResult.AlreadyExists);
                 case FileMode.Truncate:
-                    if (entry is null) return DokanResult.FileNotFound;
+                    if (entry is null) return Finish(DokanResult.FileNotFound);
                     Backend.Resize(fileName, 0);
-                    return DokanResult.Success;
+                    return Finish(DokanResult.Success);
                 case FileMode.Append:
                     if (entry is null) Backend.CreateFile(fileName);
-                    return DokanResult.Success;
+                    return Finish(DokanResult.Success);
                 default:
-                    return DokanResult.InvalidParameter;
+                    return Finish(DokanResult.InvalidParameter);
             }
         }
-        catch (Exception ex) { return Map(ex, nameof(CreateFile)); }
+        catch (Exception ex)
+        {
+            entryClass = "error-" + ex.GetType().Name;
+            return Finish(Map(ex, nameof(CreateFile)));
+        }
     }
 
     public void Cleanup(string fileName, IDokanFileInfo info)
@@ -113,29 +149,47 @@ internal sealed class DriveFileSystem(BackendSelector backends) : IDokanOperatio
 
     public NtStatus GetFileInformation(string fileName, out FileInformation fileInfo, IDokanFileInfo info)
     {
+        var isRoot = IsRootPath(fileName);
         try
         {
-            fileInfo = ToDokan(Backend.Stat(fileName), fileName);
+            var entry = Backend.Stat(fileName);
+            fileInfo = ToDokan(entry, fileName);
+            if (isRoot)
+                DriveLog.Info($"Root callback: backend={BackendKind}; operation=GetFileInformation; status={DokanResult.Success}; entry={EntryClass(entry)}; empty-name={string.IsNullOrEmpty(entry.Name)}.");
             return DokanResult.Success;
         }
         catch (Exception ex)
         {
             fileInfo = default;
-            return Map(ex, nameof(GetFileInformation));
+            var status = Map(ex, nameof(GetFileInformation));
+            if (isRoot)
+                DriveLog.Info($"Root callback: backend={BackendKind}; operation=GetFileInformation; status={status}; failure={ex.GetType().Name}.");
+            return status;
         }
     }
 
     public NtStatus FindFiles(string fileName, out IList<FileInformation> files, IDokanFileInfo info)
     {
+        var isRoot = IsRootPath(fileName);
         try
         {
-            files = Backend.List(fileName).Select(entry => ToDokan(entry, entry.Name)).ToArray();
+            var entries = Backend.List(fileName);
+            files = entries.Select(entry => ToDokan(entry, entry.Name)).ToArray();
+            if (isRoot)
+            {
+                var directories = entries.Count(entry => entry.IsDirectory);
+                var invalidNames = entries.Count(entry => !IsValidWindowsComponentName(entry.Name));
+                DriveLog.Info($"Root callback: backend={BackendKind}; operation=FindFiles; status={DokanResult.Success}; entries={entries.Count}; directories={directories}; invalid-names={invalidNames}.");
+            }
             return DokanResult.Success;
         }
         catch (Exception ex)
         {
             files = Array.Empty<FileInformation>();
-            return Map(ex, nameof(FindFiles));
+            var status = Map(ex, nameof(FindFiles));
+            if (isRoot)
+                DriveLog.Info($"Root callback: backend={BackendKind}; operation=FindFiles; status={status}; failure={ex.GetType().Name}.");
+            return status;
         }
     }
 
@@ -286,6 +340,23 @@ internal sealed class DriveFileSystem(BackendSelector backends) : IDokanOperatio
         LastWriteTime = entry.ModifiedUtc.UtcDateTime,
         Length = entry.IsDirectory ? 0 : entry.Size
     };
+
+    private static bool IsRootPath(string fileName) =>
+        string.IsNullOrEmpty(fileName) || fileName.All(character => character is '\\' or '/');
+
+    private static string EntryClass(FileEntry entry) => entry.IsDirectory ? "directory" : "file";
+
+    private static bool IsValidWindowsComponentName(string name)
+    {
+        if (string.IsNullOrEmpty(name) || name.Length > 255 || name is "." or ".." ||
+            name.EndsWith(' ') || name.EndsWith('.')) return false;
+        if (name.Any(character => char.IsControl(character) || "<>:\"/\\|?*".Contains(character))) return false;
+
+        var baseName = name.Split('.')[0].TrimEnd(' ', '.');
+        var upperBaseName = baseName.ToUpperInvariant();
+        return upperBaseName is not ("CON" or "PRN" or "AUX" or "NUL") &&
+            !Regex.IsMatch(upperBaseName, @"^(COM|LPT)[1-9]$");
+    }
 
     private static NtStatus Map(Exception exception, string operation)
     {

@@ -123,7 +123,18 @@ internal sealed class SmbBackend(string shareRoot) : IFileBackend
 {
     private readonly string _root = Path.GetFullPath(TechbaseSharePath.ValidateUncRoot(shareRoot));
 
-    public bool CanReach() => Directory.Exists(_root);
+    public bool CanReach()
+    {
+        try
+        {
+            SmbPathGuard.EnsureNoReparsePoints(_root, _root);
+            return Directory.Exists(_root);
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     public FileEntry Stat(string path)
     {
@@ -208,6 +219,7 @@ internal sealed class SmbBackend(string shareRoot) : IFileBackend
 
     public DiskSpace GetSpace()
     {
+        SmbPathGuard.EnsureNoReparsePoints(_root, _root);
         var root = Path.GetPathRoot(_root) ?? _root;
         var drive = new DriveInfo(root);
         return new DiskSpace(drive.AvailableFreeSpace, drive.TotalSize, drive.AvailableFreeSpace);
@@ -222,6 +234,7 @@ internal sealed class SmbBackend(string shareRoot) : IFileBackend
         var rootPrefix = _root.TrimEnd('\\') + "\\";
         if (!full.Equals(_root, StringComparison.OrdinalIgnoreCase) && !full.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
             throw new UnauthorizedAccessException("Pad valt buiten de SMB-share.");
+        SmbPathGuard.EnsureNoReparsePoints(_root, full);
         return full;
     }
 
@@ -235,15 +248,116 @@ internal sealed class SmbBackend(string shareRoot) : IFileBackend
     }
 }
 
-internal sealed class BackendSelector(RemoteBackend remote, SmbBackend? smb)
+internal static class SmbPathGuard
 {
+    public static void EnsureNoReparsePoints(string root, string fullPath)
+    {
+        root = Path.GetFullPath(root);
+        fullPath = Path.GetFullPath(fullPath);
+
+        var relative = Path.GetRelativePath(root, fullPath);
+        if (Path.IsPathRooted(relative) || relative == ".." || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            throw new UnauthorizedAccessException("Pad valt buiten de SMB-share.");
+
+        CheckComponent(root, isFinalComponent: false, allowMissing: false);
+        if (relative == ".") return;
+
+        var components = relative.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
+        var current = root;
+        for (var index = 0; index < components.Length; index++)
+        {
+            current = Path.Combine(current, components[index]);
+            if (!CheckComponent(current, isFinalComponent: index == components.Length - 1, allowMissing: true)) return;
+        }
+    }
+
+    private static bool CheckComponent(string path, bool isFinalComponent, bool allowMissing)
+    {
+        FileAttributes attributes;
+        try
+        {
+            attributes = File.GetAttributes(path);
+        }
+        catch (FileNotFoundException)
+        {
+            if (allowMissing) return false;
+            throw;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            if (allowMissing) return false;
+            throw;
+        }
+
+        if ((attributes & FileAttributes.ReparsePoint) != 0)
+            throw new UnauthorizedAccessException("Reparse points are not followed.");
+        if (!isFinalComponent && (attributes & FileAttributes.Directory) == 0)
+            throw new UnauthorizedAccessException("Een bestand kan niet als bovenliggende map worden gebruikt.");
+        return true;
+    }
+}
+
+internal sealed class BackendSelector
+{
+    private readonly IFileBackend _remote;
+    private readonly IFileBackend? _smb;
+    private readonly Func<bool> _remoteIsAuthenticated;
+    private readonly Func<bool> _smbAvailabilityProbe;
+    private IFileBackend? _mountedBackend;
     private int _smbReachable;
     private int _smbProbeInProgress;
-    public RemoteBackend Remote { get; } = remote;
-    public SmbBackend? Smb { get; } = smb;
+
+    public BackendSelector(RemoteBackend remote, SmbBackend? smb)
+        : this(remote, smb, () => remote.IsAuthenticated, () => smb?.CanReach() ?? false) { }
+
+    internal BackendSelector(IFileBackend remote, IFileBackend? smb,
+        Func<bool> remoteIsAuthenticated, Func<bool> smbAvailabilityProbe)
+    {
+        _remote = remote;
+        _smb = smb;
+        _remoteIsAuthenticated = remoteIsAuthenticated;
+        _smbAvailabilityProbe = smbAvailabilityProbe;
+    }
+
+    public IFileBackend Remote => _remote;
+    public IFileBackend? Smb => _smb;
     public bool SmbReachable => Volatile.Read(ref _smbReachable) != 0;
-    public string Mode => SmbReachable ? "LAN-SMB" : Remote.IsAuthenticated ? "UGREENlink" : "UGREENlink (aanmelding vereist)";
-    public IFileBackend Current => SmbReachable && Smb is not null ? Smb : Remote;
+
+    public string Mode
+    {
+        get
+        {
+            var mounted = Volatile.Read(ref _mountedBackend);
+            if (mounted is not null) return $"{Describe(mounted)} (gekoppeld)";
+            return SmbReachable && Smb is not null
+                ? "LAN-SMB"
+                : _remoteIsAuthenticated() ? "UGREENlink" : "UGREENlink (aanmelding vereist)";
+        }
+    }
+
+    public IFileBackend Current => Volatile.Read(ref _mountedBackend) ?? PreferredBackend();
+
+    public IFileBackend PinForMount()
+    {
+        var selected = PreferredBackend();
+        if (Interlocked.CompareExchange(ref _mountedBackend, selected, null) is not null)
+            throw new InvalidOperationException("Er is al een backend vastgezet voor een actieve schijfkoppeling.");
+        return selected;
+    }
+
+    public void ReleaseMount(IFileBackend? expectedBackend = null)
+    {
+        if (expectedBackend is null)
+        {
+            Interlocked.Exchange(ref _mountedBackend, null);
+            return;
+        }
+
+        Interlocked.CompareExchange(ref _mountedBackend, null, expectedBackend);
+    }
+
+    public string Describe(IFileBackend backend) =>
+        ReferenceEquals(backend, Smb) ? "LAN-SMB" : ReferenceEquals(backend, Remote) ? "UGREENlink" : "onbekend";
 
     public async Task ProbeSmbAsync()
     {
@@ -255,7 +369,7 @@ internal sealed class BackendSelector(RemoteBackend remote, SmbBackend? smb)
         if (Interlocked.CompareExchange(ref _smbProbeInProgress, 1, 0) != 0) return;
         try
         {
-            var reachable = await Task.Run(Smb.CanReach).WaitAsync(TimeSpan.FromSeconds(2));
+            var reachable = await Task.Run(_smbAvailabilityProbe).WaitAsync(TimeSpan.FromSeconds(2));
             Volatile.Write(ref _smbReachable, reachable ? 1 : 0);
         }
         catch
@@ -267,6 +381,8 @@ internal sealed class BackendSelector(RemoteBackend remote, SmbBackend? smb)
             Volatile.Write(ref _smbProbeInProgress, 0);
         }
     }
+
+    private IFileBackend PreferredBackend() => SmbReachable && Smb is not null ? Smb : Remote;
 }
 
 internal static class JsonDefaults
