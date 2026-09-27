@@ -1,5 +1,7 @@
 # UGREEN Remote Windows File Service
 
+Latest preview: [`v0.3.3-preview.2`](https://github.com/LukaStuurman/UGREEN-remote-windows-file-service/releases/tag/v0.3.3-preview.2). This release refreshes repository and agent handoff documentation; the Windows application behavior is unchanged from `v0.3.3-preview.1`.
+
 Mount only the UGREEN NAS shared folder named `Techbase` as a fixed Windows drive letter. At home, the client prefers the `Techbase` SMB share. Away from home, it uses a small API container reached through a UGREENlink Docker desktop shortcut (`*.ugapp.link` or `*.ugdocker.link`).
 
 The Windows client opens the shortcut in its own WebView2 window. Sign in with the normal UGREENlink login; **there is no second access code to enter**. UGREEN states that remote access to Docker container shortcuts is available only to users signed in via UGREENlink ([official guide](https://support.ugnas.com/detail/article/en-US/715)). The client uses that authenticated browser session with `credentials: include`; it never reads or exports cookies and does not store the NAS password.

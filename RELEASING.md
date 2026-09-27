@@ -21,7 +21,7 @@ Do not publish a stable release until the actual NAS path and UGREENlink route h
 
 Any UGREENlink account with permission to open the Docker shortcut gets the same read/write access to all of `Techbase`; verify that shortcut permissions are limited to trusted accounts. The GitHub container smoke test uses a disposable directory and does not prove UGREENlink access control or NAS behavior.
 
-If NAS integration is incomplete, publish only a clearly named prerelease such as `v0.3.0-preview.1`. A hyphenated tag is published as a GitHub prerelease. Do not claim NAS validation or promote it to stable before the checklist passes.
+If NAS integration is incomplete, publish only a clearly named prerelease such as `v0.3.3-preview.2`. A hyphenated tag is published as a GitHub prerelease. Do not claim NAS validation or promote it to stable before the checklist passes. The current reconnect auto-open implementation is best effort and still needs verification on the actual NAS.
 
 ## Versioning and publishing
 
@@ -31,8 +31,8 @@ If NAS integration is incomplete, publish only a clearly named prerelease such a
 4. Create and push an annotated tag from the exact tested commit, for example:
 
    ```powershell
-   git tag -a v0.3.0-preview.1 -m "UGREEN Remote Drive v0.3.0-preview.1"
-   git push origin v0.3.0-preview.1
+   git tag -a v0.3.3-preview.2 -m "UGREEN Remote Drive v0.3.3-preview.2"
+   git push origin v0.3.3-preview.2
    ```
 
 5. GitHub Actions repeats the API tests, Docker build/header smoke tests, and Windows build. On success, it publishes a self-contained `UGREENRemoteDrive-win-x64.zip` and SHA-256 checksum. GitHub also provides source archives.
