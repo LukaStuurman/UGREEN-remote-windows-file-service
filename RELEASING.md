@@ -8,6 +8,8 @@ Do not publish a stable release until the actual NAS path and UGREENlink route h
 
 - Windows LAN connection to the `Techbase` SMB share.
 - Remote access through the UGREENlink desktop shortcut when outside the LAN.
+- First-time shortcut discovery from `https://ug.link/<ID>` and a subsequent app restart without manually entering the generated Docker shortcut address.
+- If UGREENlink requires a fresh shortcut activation, selecting the tile inside the app's embedded NAS desktop automatically returns to the mount flow.
 - Shortcut access denied to a browser session that is not signed in, and available after signing in.
 - The file API rejects requests without its required client header and works through the signed-in UGREENlink shortcut.
 - Listing, read, create, write, resize, rename, delete, and modification-time behavior.
