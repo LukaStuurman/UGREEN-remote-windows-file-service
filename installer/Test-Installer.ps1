@@ -13,11 +13,12 @@ if (Test-Path -LiteralPath "$env:windir\System32\dokan2.dll") {
 $installerPath = (Resolve-Path -LiteralPath $Installer).Path
 $appDirectory = Join-Path $env:ProgramFiles 'UGREEN Remote Drive'
 $settingsDirectory = Join-Path $env:LOCALAPPDATA 'UGREEN Remote Drive'
-if ((Test-Path -LiteralPath $appDirectory) -or (Test-Path -LiteralPath $settingsDirectory)) {
-    throw 'The installer smoke test requires a clean app/configuration directory.'
-}
-New-Item -ItemType Directory -Path $settingsDirectory | Out-Null
 $settingsPath = Join-Path $settingsDirectory 'config.json'
+if ((Test-Path -LiteralPath $appDirectory) -or (Test-Path -LiteralPath $settingsPath)) {
+    throw 'The installer smoke test requires an uninstalled app and no existing configuration file.'
+}
+# Earlier client unit tests may already have created this directory for logs.
+New-Item -ItemType Directory -Path $settingsDirectory -Force | Out-Null
 $settingsFixture = '{"installerSmokeTest":"preserve-user-settings"}'
 Set-Content -LiteralPath $settingsPath -Value $settingsFixture -NoNewline
 
