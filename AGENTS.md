@@ -10,6 +10,14 @@ De eerste implementatie staat op `main` in commit `456fe4d` (`feat: add UGREENli
 
 ## Huidige status — 2026-09-27
 
+### Installer-update — 2026-10-15
+
+- `v0.3.4-preview.1` voegt `UGREENRemoteDrive-Setup-win-x64.exe` toe. Dit is de aanbevolen download; de losse EXE en ZIP zijn portable en vereisen een reeds geïnstalleerde Dokany-driver.
+- `installer/Build-Installer.ps1` verifieert SHA-256 en Authenticode van de vaste officiële Dokany 2.3.1.1000-bundle en bouwt met Inno Setup 6 één installer met die bundle ingebed. Compileren installeert geen driver op de ontwikkelcomputer.
+- De setup installeert ontbrekende Dokany met beheerdersrechten, hergebruikt een complete compatibele 2.3+-installatie, meldt herstarts en start de app pas als de driver beschikbaar is. Een bestaande oude/onvolledige 2.x-installatie wordt niet automatisch verwijderd: upstream vereist eerst verwijderen en herstarten. De app start na setup als oorspronkelijke Windows-gebruiker.
+- `installer/Test-Installer.ps1` mag uitsluitend op een schone, wegwerpbare GitHub-hosted runner draaien. CI toetst vers installeren, laden van native DLL/driver, herinstalleren zonder driververvanging en verwijderen met behoud van gedeelde Dokany en gebruikersinstellingen. Dit is geen NAS-integratietest. Installeer/test de driver niet op de gebruikerscomputer zonder afzonderlijke toestemming.
+- Het bestaande WebView2-profiel en de NAS-instellingen blijven behouden. WebView2 Runtime blijft een Windows-voorwaarde. De NAS-container hoeft voor deze installerwijziging niet te worden aangepast.
+
 - Laatste gepubliceerde versie: GitHub-prerelease [`v0.3.3-preview.2`](https://github.com/LukaStuurman/UGREEN-remote-windows-file-service/releases/tag/v0.3.3-preview.2), vanaf de documentatie-update na `v0.3.3-preview.1`. Deze tweede preview werkt de documentatie bij; de Windows-appfunctionaliteit is gelijk aan `.1`. De eerdere `v0.1.0-preview.1` is verouderd; gebruik die niet.
 - PR [#4](https://github.com/LukaStuurman/UGREEN-remote-windows-file-service/pull/4) bracht een best-effort automatische tegelopening bij reconnect en is samengevoegd. De client probeert op het vertrouwde UGREENlink-`/desktop/` één keer een link te openen waarvan HTTPS-origin exact overeenkomt met de opgeslagen Remote Drive-shortcut. Alleen de root- of goedgekeurde auth-bootstrapbestemming kan door een eenmalige popup-toestemming.
 - Eerste discovery vanaf `https://ug.link/<ID>` vereist nog steeds één handmatige Remote Drive-tegelklik: de gegenereerde shortcut-hostnaam is daarvoor nog onbekend. Bij reconnect valt de app terug op een handmatige klik als de tile-link ontbreekt of de automatische poging niet werkt. Zie [README.md](README.md) en [docs/ugreenlink-shortcut-discovery.md](docs/ugreenlink-shortcut-discovery.md).
@@ -83,7 +91,7 @@ De server weigert absolute paden, `..`, paden buiten de ingestelde root, symboli
 ### Windows-client
 
 - `client/UGREENRemoteDrive/` is een WPF-app voor .NET 8 (`net8.0-windows`). Belangrijke onderdelen: `DriveFileSystem.cs` vertaalt Dokany-operaties; `StorageBackends.cs` implementeert SMB en remote API; `RemoteBridge.cs` koppelt Dokan-workerthreads aan de WebView2-browser; `DriveSettings.cs` bewaart instellingen en logt.
-- NuGet-referenties: DokanNet `2.3.0.3`, WebView2 `1.0.4191.47`, ProtectedData `8.0.0`. De officiële Dokany 2.3 runtime/driver moet apart geïnstalleerd worden om werkelijk te mounten.
+- NuGet-referenties: DokanNet `2.3.0.3`, WebView2 `1.0.4191.47`. De officiële Dokany 2.3 runtime/driver wordt door de nieuwe setup meegenomen en geïnstalleerd als hij ontbreekt; portable downloads blijven een bestaande driver vereisen.
 - De SMB-backend gebruikt de bestaande Windows SMB-identiteit en bewaart geen SMB-wachtwoord. Configuratie en backend accepteren uitsluitend de UNC-share-root `\\server\Techbase`, zonder andere shares of submappen. De client controleert SMB periodiek; bereikbare SMB krijgt voorrang boven remote.
 - De statuscontrole loopt via een 5-seconden UI-timer; SMB-probes hebben een timeout van 2 seconden en remote-authenticatie wordt periodiek opnieuw geprobeerd. Een onderbroken lopende bestandsactie wordt niet gegarandeerd hervat: de app meldt de fout zodat die opnieuw kan worden uitgevoerd.
 - De client draait in het systeemvak. Optioneel kan Windows-aanmelding worden ingesteld via de current-user Run-registersleutel. Bij autostart kan de app zichtbaar worden als opnieuw aanmelden vereist is.

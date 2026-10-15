@@ -1,6 +1,6 @@
 # UGREEN Remote Windows File Service
 
-Latest preview: [`v0.3.3-preview.2`](https://github.com/LukaStuurman/UGREEN-remote-windows-file-service/releases/tag/v0.3.3-preview.2). This release refreshes repository and agent handoff documentation; the Windows application behavior is unchanged from `v0.3.3-preview.1`.
+Latest preview: [`v0.3.4-preview.1`](https://github.com/LukaStuurman/UGREEN-remote-windows-file-service/releases/tag/v0.3.4-preview.1). Download **`UGREENRemoteDrive-Setup-win-x64.exe`** for the Windows installer with the official Dokany runtime/driver included. Installer integration is tested on a disposable Windows runner; this does not establish end-to-end NAS validation.
 
 Mount only the UGREEN NAS shared folder named `Techbase` as a fixed Windows drive letter. At home, the client prefers the `Techbase` SMB share. Away from home, it uses a small API container reached through a UGREENlink Docker desktop shortcut (`*.ugapp.link` or `*.ugdocker.link`).
 
@@ -25,8 +25,8 @@ The UGREENlink sign-in is the access boundary for the remote shortcut. Any UGREE
 
 ## Windows setup
 
-1. Install the official Dokany 2.3 runtime once; its Windows filesystem driver is required for a drive letter.
-2. Start `UGREENRemoteDrive.exe`. For automatic shortcut discovery, enter the NAS web address `https://ug.link/<your-UGREENlink-ID>` (from Control Panel > Device Connection > Remote access). You can also paste the Docker shortcut HTTPS address (`ugapp.link` or `ugdocker.link`) if you already have it.
+1. Download and run **`UGREENRemoteDrive-Setup-win-x64.exe`** from the GitHub release. The installer includes the self-contained app and the unmodified official Dokany 2.3.1.1000 installer, installs Dokany automatically if missing, and creates a Start-menu shortcut. Approve the Windows administrator prompt. No separate Dokany download is needed. If requested, restart Windows before opening the app. A compatible existing Dokany 2.3+ driver is reused; an older/incomplete Dokany 2.x installation must be removed through Windows Settings > Apps and Windows restarted before retrying, because upstream does not support an in-place driver upgrade. This installer supports x64 Windows 10/11, not ARM64.
+2. Start **UGREEN Remote Drive** from the Start menu. For automatic shortcut discovery, enter the NAS web address `https://ug.link/<your-UGREENlink-ID>` (from Control Panel > Device Connection > Remote access). You can also paste the Docker shortcut HTTPS address (`ugapp.link` or `ugdocker.link`) if you already have it.
 3. Click **Verbinden en schijf openen**. For a NAS address, sign in inside the app and click the **Remote Drive** desktop tile once. The app captures the tile's approved shortcut origin and saves it locally; it never stores the one-time ticket/query. **No access code or token is needed.**
 4. The saved shortcut address is filled in automatically on later starts. Select **Start en koppel automatisch aan bij Windows-aanmelding** to launch in the tray and mount `U:` whenever the saved UGREENlink session and NAS shortcut are available. The app has its own WebView2 profile; it does not read Edge cookies or save your NAS password.
 5. LAN/SMB path and an alternate drive letter are optional under **Optioneel: LAN/SMB en andere schijfletter**. If configured and reachable, the `Techbase` SMB share is preferred at home; otherwise the app uses the remote API.
@@ -34,6 +34,8 @@ The UGREENlink sign-in is the access boundary for the remote shortcut. Any UGREE
 UGREEN documents remote Docker access as opening a container's desktop shortcut while signed in with UGREENlink ([NAS remote access](https://support.ugnas.com/detail/article/en-US/86), [Docker desktop shortcuts](https://support.ugnas.com/detail/article/en-US/715)). First-time discovery uses that supported tile action rather than a private NAS API. On reconnect, the app makes one best-effort attempt to open the exact saved Remote Drive link from the embedded desktop; if the tile is not exposed as a link or the activation fails, click it manually. UGREEN does not document an API for automatic shortcut activation, so this fallback must be verified on the actual NAS.
 
 The SMB path uses the Windows user's existing SMB authentication. The app does not store SMB credentials. The SMB field accepts only the share root `\\NASNAME\Techbase`; it rejects other shares and subfolders.
+
+The installer preserves existing settings and the app's WebView2 sign-in profile. Close an older copy started from Downloads/the tray and use the installed Start-menu shortcut. If automatic startup was enabled for a portable copy, toggle it off and on in the installed app to update its startup path. Uninstalling the app preserves settings and the shared Dokany installation because other apps may need it. Microsoft Edge WebView2 Runtime must still be available on Windows. The separate `UGREENRemoteDrive.exe` and ZIP remain portable downloads for systems where Dokany is already installed; they are **not** installers.
 
 ## Updating an existing installation
 
@@ -75,6 +77,14 @@ dotnet test client/UGREENRemoteDrive.sln -c Release --no-build
 ```
 
 The Dokany driver is not installed by the build. Install it from the official Dokany release when you are ready to mount a drive.
+
+To build the bundled installer after publishing the client, use PowerShell with Inno Setup 6 installed:
+
+```powershell
+./installer/Build-Installer.ps1 -PublishDirectory ./client/UGREENRemoteDrive/bin/Release/net8.0-windows/win-x64/publish -OutputDirectory ./installer/output
+```
+
+The build downloads a fixed official Dokany release and verifies both SHA-256 and Authenticode before embedding it. Building does not install the driver on the developer's machine. `installer/Test-Installer.ps1` is restricted to disposable GitHub-hosted runners; CI checks first installation, native DLL/driver loading, repeated installation without driver replacement, and uninstall with shared dependencies/settings preserved.
 
 ## Logging and configuration
 

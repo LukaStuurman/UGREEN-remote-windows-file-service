@@ -106,6 +106,7 @@ jobs:
 
   windows-build:
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -120,7 +121,6 @@ jobs:
       - name: Run Windows client tests
         run: dotnet test client/UGREENRemoteDrive.sln -c Release --no-build
       - name: Publish and package Windows client
-        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         run: |
           $publish = Join-Path $env:RUNNER_TEMP 'UGREENRemoteDrive'
@@ -143,12 +143,47 @@ jobs:
           $zipHash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
           "$zipHash  UGREENRemoteDrive-win-x64.zip" |
             Set-Content -NoNewline -Encoding ascii "$archive.sha256"
+      - name: Build installer with bundled official Dokany
+        shell: pwsh
+        env:
+          RELEASE_REF: ${{ github.ref }}
+          RELEASE_REF_NAME: ${{ github.ref_name }}
+        run: |
+          $arguments = @{
+            PublishDirectory = Join-Path $env:RUNNER_TEMP 'UGREENRemoteDrive'
+            OutputDirectory = $env:RUNNER_TEMP
+          }
+          if ($env:RELEASE_REF.StartsWith('refs/tags/v')) {
+            $arguments.Version = $env:RELEASE_REF_NAME.Substring(1)
+          }
+          ./installer/Build-Installer.ps1 @arguments
+      - name: Test fresh install, existing Dokany, and uninstall on disposable runner
+        shell: pwsh
+        run: ./installer/Test-Installer.ps1 -Installer (Join-Path $env:RUNNER_TEMP 'UGREENRemoteDrive-Setup-win-x64.exe')
+      - name: Collect installer diagnostic logs
+        if: always()
+        shell: pwsh
+        run: |
+          $diagnostics = Join-Path $env:RUNNER_TEMP 'installer-diagnostics'
+          New-Item -ItemType Directory -Path $diagnostics -Force | Out-Null
+          Get-ChildItem -Path (Join-Path $env:RUNNER_TEMP 'installer-smoke-*.log'), `
+            'C:/ProgramData/UGREEN Remote Drive/InstallerLogs/*.log' `
+            -File -ErrorAction SilentlyContinue | Copy-Item -Destination $diagnostics
+      - name: Upload installer diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: installer-diagnostics
+          path: ${{ runner.temp }}/installer-diagnostics/
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Upload release files
-        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v7.0.1
         with:
           name: UGREENRemoteDrive-win-x64
           path: |
+            ${{ runner.temp }}/UGREENRemoteDrive-Setup-win-x64.exe
+            ${{ runner.temp }}/UGREENRemoteDrive-Setup-win-x64.exe.sha256
             ${{ runner.temp }}/UGREENRemoteDrive.exe
             ${{ runner.temp }}/UGREENRemoteDrive.exe.sha256
             ${{ runner.temp }}/UGREENRemoteDrive-win-x64.zip
@@ -203,6 +238,8 @@ jobs:
           fi
 
           gh release create "$tag" \
+            dist/UGREENRemoteDrive-Setup-win-x64.exe \
+            dist/UGREENRemoteDrive-Setup-win-x64.exe.sha256 \
             dist/UGREENRemoteDrive.exe \
             dist/UGREENRemoteDrive.exe.sha256 \
             dist/UGREENRemoteDrive-win-x64.zip \

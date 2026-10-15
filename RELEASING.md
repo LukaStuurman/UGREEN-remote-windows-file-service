@@ -17,7 +17,7 @@ Do not publish a stable release until the actual NAS path and UGREENlink route h
 - SMB preference on LAN and backend switch/reconnect behavior.
 - Confirmation that no other NAS share or parent directory is mounted.
 - Compose has exactly one data bind mount, targets `/data`, refuses to create a missing host path, and both server and Windows client reject non-Techbase share paths.
-- Windows client build and Dokany/WebView2 runtime requirements.
+- Windows client build, bundled Dokany fresh install/reinstall/uninstall, and WebView2 runtime requirements.
 
 Any UGREENlink account with permission to open the Docker shortcut gets the same read/write access to all of `Techbase`; verify that shortcut permissions are limited to trusted accounts. The GitHub container smoke test uses a disposable directory and does not prove UGREENlink access control or NAS behavior.
 
@@ -35,8 +35,8 @@ If NAS integration is incomplete, publish only a clearly named prerelease such a
    git push origin v0.3.3-preview.2
    ```
 
-5. GitHub Actions repeats the API tests, Docker build/header smoke tests, and Windows build. On success, it publishes a self-contained `UGREENRemoteDrive-win-x64.zip` and SHA-256 checksum. GitHub also provides source archives.
+5. GitHub Actions repeats the API tests, Docker build/header smoke tests, Windows build, and installer smoke test on a disposable Windows runner. On success, it publishes **`UGREENRemoteDrive-Setup-win-x64.exe`** with the pinned official Dokany 2.3.1.1000 bundle embedded, plus a SHA-256 checksum. The standalone EXE/ZIP remain available as portable alternatives requiring an existing Dokany installation. GitHub also provides source archives.
 6. For NAS deployment, set `UGREEN_DRIVE_REF` to the exact release tag and update the Compose project without `UGREEN_DRIVE_TOKEN`. Use `main` only for a clearly identified development build.
 7. Verify the release page and downloaded checksum. Update README and this file when the procedure changes.
 
-The Windows ZIP includes the .NET runtime, but Windows still needs the Microsoft Edge WebView2 Runtime and official Dokany filesystem driver. Never place NAS IPs, UGREENlink URLs, share host paths, passwords, or cookies in release notes or assets.
+The installer includes the .NET runtime and installs the official Dokany driver if missing. Its build verifies the upstream bundle's pinned SHA-256 and Authenticode signature; do not change the version/hash without reviewing the official upstream release. Existing compatible Dokany 2.3+ is reused. Older or incomplete Dokany 2.x is reported without automatically removing a shared driver; upstream requires uninstall/reboot first. The setup reports required restarts, suppresses app launch until then, and preserves Dokany and user settings on uninstall. Microsoft Edge WebView2 Runtime is still required. The portable ZIP/EXE do not install Dokany. Never place NAS IPs, UGREENlink URLs, share host paths, passwords, or cookies in release notes or assets.
