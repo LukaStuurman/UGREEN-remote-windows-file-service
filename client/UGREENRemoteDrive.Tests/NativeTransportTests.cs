@@ -112,8 +112,9 @@ public sealed class NativeTransportTests
             CollectionAssert.AreEqual(fixture, uploaded!);
             var empty = await Task.Run(() => backend.Read("fixture", fixture.Length, 4096));
             Assert.AreEqual(0, empty.Length);
-            await Assert.ThrowsExactlyAsync<DriveDisconnectedException>(() =>
+            var overflow = await Assert.ThrowsExactlyAsync<DriveApiException>(() =>
                 Task.Run(() => backend.Read("oversized", 0, 4096)));
+            Assert.AreEqual(0, overflow.Status);
             await Assert.ThrowsExactlyAsync<DriveDisconnectedException>(() => Task.Run(() =>
                 bridge.Send("GET", "https://other.ugdocker.link/api/v1/stat?path=")));
         }
