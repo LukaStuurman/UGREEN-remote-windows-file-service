@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
 from urllib.parse import parse_qs, urlsplit
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 PORT = int(os.environ.get("PORT", "8080"))
 DATA_ROOT = Path(os.environ.get("DATA_ROOT", "/data")).resolve()
 TECHBASE_HOST_PATH = os.environ.get("TECHBASE_HOST_PATH", "")
@@ -92,6 +92,11 @@ def stat_json(path: Path) -> dict[str, object]:
 
 
 class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+    # Avoid the delayed-ACK/Nagle pause between response headers and small bodies.
+    disable_nagle_algorithm = True
+    # Bound idle keep-alive workers in the NAS container.
+    timeout = 30
     server_version = "UGREENRemoteDrive/" + VERSION
     sys_version = ""
 
@@ -112,7 +117,15 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def send_error_json(self, error: ApiError) -> None:
+        # An early rejection can leave an unread request body on the socket.
+        # Never interpret those bytes as the next persistent HTTP request.
+        self.close_connection = True
         self.send_json(error.status, {"error": error.message})
+
+    def end_headers(self) -> None:
+        if self.close_connection:
+            self.send_header("Connection", "close")
+        super().end_headers()
 
     def query(self) -> dict[str, str]:
         values = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
@@ -132,7 +145,10 @@ class Handler(BaseHTTPRequestHandler):
         length = int(raw_len)
         if length > MAX_BODY:
             raise ApiError(413, "request body too large")
-        return self.rfile.read(length)
+        body = self.rfile.read(length)
+        if len(body) != length:
+            raise ApiError(400, "incomplete request body")
+        return body
 
     def route(self, method: str) -> None:
         path = urlsplit(self.path).path
@@ -194,7 +210,7 @@ class Handler(BaseHTTPRequestHandler):
             if file_path.is_dir():
                 raise ApiError(400, "path is a directory")
             try:
-                fd = os.open(file_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+                fd = os.open(file_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0))
                 try:
                     if hasattr(os, "pread"):
                         body = os.pread(fd, length, offset)
@@ -220,7 +236,7 @@ class Handler(BaseHTTPRequestHandler):
             if file_path == DATA_ROOT:
                 raise ApiError(400, "cannot create the share root")
             try:
-                fd = os.open(file_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0), 0o660)
+                fd = os.open(file_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0), 0o660)
                 os.close(fd)
             except FileExistsError:
                 raise ApiError(409, "already exists")
@@ -238,7 +254,7 @@ class Handler(BaseHTTPRequestHandler):
             if offset < -1 or file_path == DATA_ROOT or file_path.is_dir():
                 raise ApiError(400, "invalid file or offset")
             body = self.read_body()
-            flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+            flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
             if append:
                 flags |= os.O_APPEND
             try:
@@ -372,6 +388,21 @@ class Handler(BaseHTTPRequestHandler):
 
     def handle_route(self, method: str) -> None:
         try:
+            # Only explicitly supported fixed-length bodies may share a socket.
+            # Reject ambiguous framing instead of draining arbitrary input.
+            if self.headers.get("Transfer-Encoding") is not None:
+                raise ApiError(400, "transfer encoding is not supported")
+            lengths = self.headers.get_all("Content-Length", [])
+            if len(lengths) > 1 or (lengths and not lengths[0].isdigit()):
+                raise ApiError(400, "invalid content length")
+            length = int(lengths[0]) if lengths else 0
+            if length > MAX_BODY:
+                raise ApiError(413, "request body too large")
+            route = urlsplit(self.path).path
+            body_route = (method == "PUT" and route == "/api/v1/write") or (
+                method == "POST" and route in ("/api/v1/rename", "/api/v1/times"))
+            if length and not body_route:
+                raise ApiError(400, "unexpected request body")
             self.route(method)
         except ApiError as exc:
             self.send_error_json(exc)

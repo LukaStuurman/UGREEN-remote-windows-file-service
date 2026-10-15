@@ -8,6 +8,67 @@ namespace UGREENRemoteDrive.Tests;
 public sealed class BackendPinningTests
 {
     [TestMethod]
+    public async Task RecentSmbResultCanBeReusedWithoutAnotherNetworkLookup()
+    {
+        var remote = new CountingBackend(new DiskSpace(0, 0, 0));
+        var smb = new CountingBackend(new DiskSpace(0, 0, 0));
+        var calls = 0;
+        var selector = new BackendSelector(remote, smb, () => true, () => { Interlocked.Increment(ref calls); return true; });
+        for (var index = 0; index < 5; index++) await selector.ProbeSmbAsync(useRecentResult: true);
+        Assert.AreEqual(1, calls);
+        Assert.IsTrue(selector.SmbReachable);
+        await selector.ProbeSmbAsync();
+        Assert.AreEqual(2, calls, "An explicit fresh probe must still be possible.");
+    }
+
+    [TestMethod]
+    public async Task ConcurrentSmbLookupsWaitForTheSameWorkerAndResult()
+    {
+        var remote = new CountingBackend(new DiskSpace(0, 0, 0));
+        var smb = new CountingBackend(new DiskSpace(0, 0, 0));
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var calls = 0;
+        var selector = new BackendSelector(remote, smb, () => true, () =>
+        {
+            Interlocked.Increment(ref calls);
+            entered.Set();
+            if (!release.Wait(TimeSpan.FromSeconds(5))) throw new TimeoutException();
+            return true;
+        });
+        var first = selector.ProbeSmbAsync();
+        Assert.IsTrue(entered.Wait(TimeSpan.FromSeconds(3)));
+        var second = selector.ProbeSmbAsync();
+        Assert.IsFalse(second.IsCompleted, "A caller must not mount with a stale false result while the shared probe is pending.");
+        release.Set();
+        await Task.WhenAll(first, second);
+        Assert.AreEqual(1, calls);
+        Assert.IsTrue(selector.SmbReachable);
+    }
+
+    [TestMethod]
+    public async Task TimedOutSmbLookupDoesNotAccumulateBlockedWorkers()
+    {
+        var backend = new CountingBackend(new DiskSpace(0, 0, 0));
+        using var release = new ManualResetEventSlim();
+        var calls = 0;
+        var selector = new BackendSelector(backend, backend, () => true, () =>
+        {
+            Interlocked.Increment(ref calls);
+            if (!release.Wait(TimeSpan.FromSeconds(8))) throw new TimeoutException();
+            return true;
+        });
+        await selector.ProbeSmbAsync().WaitAsync(TimeSpan.FromSeconds(4));
+        Assert.IsFalse(selector.SmbReachable);
+        var second = selector.ProbeSmbAsync();
+        Assert.AreEqual(1, calls);
+        release.Set();
+        await second;
+        Assert.IsTrue(selector.SmbReachable);
+        Assert.AreEqual(1, calls);
+    }
+
+    [TestMethod]
     public async Task MountedBackendStaysPinnedAcrossSmbChangesAndListsRoot()
     {
         await VerifyMountedBackendStaysPinnedAsync(smbInitiallyReachable: true);

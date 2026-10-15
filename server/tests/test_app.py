@@ -1,4 +1,6 @@
 import json
+import http.client
+import socket
 import tempfile
 import threading
 import unittest
@@ -11,6 +13,15 @@ from urllib.request import Request, urlopen
 import app
 
 
+class CountingServer(ThreadingHTTPServer):
+    accepted_connections = 0
+
+    def get_request(self):
+        request = super().get_request()
+        self.accepted_connections += 1
+        return request
+
+
 class FileApiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -18,7 +29,8 @@ class FileApiTests(unittest.TestCase):
         cls.root = Path(cls.tempdir.name) / "share"
         cls.root.mkdir()
         app.DATA_ROOT = cls.root.resolve()
-        cls.server = ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
+        cls.server = CountingServer(("127.0.0.1", 0), app.Handler)
+        cls.server.daemon_threads = True
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
         cls.base = f"http://127.0.0.1:{cls.server.server_port}"
@@ -135,6 +147,96 @@ class FileApiTests(unittest.TestCase):
                 app.validate_techbase_host_path(path)
 
         app.validate_techbase_host_path("/volume1/Techbase")
+
+    def test_repeated_file_reads_reuse_one_tcp_connection(self):
+        fixture = self.root / "keepalive-read.bin"
+        fixture.write_bytes(bytes(range(256)) * 1024)
+        before = self.server.accepted_connections
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=3)
+        try:
+            for offset in range(0, 256 * 1024, 32 * 1024):
+                connection.request("GET", "/api/v1/read?" + urlencode({
+                    "path": fixture.name, "offset": offset, "length": 32 * 1024
+                }), headers={"X-UGREEN-Remote-Drive": "1"})
+                response = connection.getresponse()
+                self.assertEqual(response.version, 11)
+                self.assertEqual(response.status, 200)
+                self.assertEqual(len(response.read()), 32 * 1024)
+                self.assertFalse(response.will_close)
+            self.assertEqual(self.server.accepted_connections - before, 1)
+        finally:
+            connection.close()
+            fixture.unlink()
+
+    def test_writes_are_acknowledged_and_connection_can_be_reused(self):
+        fixture = self.root / "keepalive-write.bin"
+        before = self.server.accepted_connections
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=3)
+        try:
+            for offset in (0, 3, 6):
+                connection.request("PUT", "/api/v1/write?" + urlencode({"path": fixture.name, "offset": offset}),
+                                   body=b"abc", headers={"X-UGREEN-Remote-Drive": "1"})
+                response = connection.getresponse()
+                self.assertEqual(response.status, 200)
+                self.assertEqual(json.loads(response.read())["written"], 3)
+                self.assertFalse(response.will_close)
+            self.assertEqual(fixture.read_bytes(), b"abcabcabc")
+            self.assertEqual(self.server.accepted_connections - before, 1)
+        finally:
+            connection.close()
+            fixture.unlink(missing_ok=True)
+
+    def test_binary_write_and_read_preserve_all_bytes(self):
+        fixture = self.root / "binary-roundtrip.bin"
+        payload = bytes(range(256)) * 1024 + b"\r\n\x1a\n"
+        try:
+            response = self.request("PUT", "/api/v1/write?" + urlencode({
+                "path": fixture.name, "offset": 0}), body=payload)
+            self.assertEqual(json.loads(response.read())["written"], len(payload))
+            response.close()
+            response = self.request("GET", "/api/v1/read?" + urlencode({
+                "path": fixture.name, "offset": 0, "length": len(payload)}))
+            self.assertEqual(response.read(), payload)
+            response.close()
+            self.assertEqual(fixture.read_bytes(), payload)
+        finally:
+            fixture.unlink(missing_ok=True)
+
+    def test_rejected_body_cannot_be_reinterpreted_as_a_second_request(self):
+        fixture = self.root / "must-not-be-smuggled.txt"
+        payload = (f"POST /api/v1/create?path={fixture.name} HTTP/1.1\r\n"
+                   "Host: localhost\r\nX-UGREEN-Remote-Drive: 1\r\nContent-Length: 0\r\n\r\n").encode()
+        with socket.create_connection(("127.0.0.1", self.server.server_port), timeout=3) as stream:
+            # Missing required client header: reject before consuming the body.
+            stream.sendall((f"PUT /api/v1/write?path=ignored.bin HTTP/1.1\r\nHost: localhost\r\n"
+                            f"Content-Length: {len(payload)}\r\n\r\n").encode() + payload)
+            response = http.client.HTTPResponse(stream)
+            response.begin()
+            self.assertEqual(response.status, 403)
+            self.assertEqual(response.getheader("Connection"), "close")
+            response.read()
+            try:
+                self.assertEqual(stream.recv(1), b"")
+            except ConnectionResetError:
+                pass  # Windows may reset a socket whose rejected body was unread.
+        self.assertFalse(fixture.exists())
+
+    def test_ambiguous_or_unexpected_bodies_close_the_connection(self):
+        cases = [
+            "Transfer-Encoding: chunked\r\n",
+            "Content-Length: 1\r\nContent-Length: 1\r\n",
+            "Content-Length: bad\r\n",
+            "Content-Length: 1\r\n",
+        ]
+        for headers in cases:
+            with self.subTest(headers=headers), socket.create_connection(
+                    ("127.0.0.1", self.server.server_port), timeout=3) as stream:
+                stream.sendall(("GET /api/v1/health HTTP/1.1\r\nHost: localhost\r\n" + headers + "\r\nx").encode())
+                response = http.client.HTTPResponse(stream)
+                response.begin()
+                self.assertEqual(response.status, 400)
+                self.assertEqual(response.getheader("Connection"), "close")
+                response.read()
 
 
 if __name__ == "__main__":
