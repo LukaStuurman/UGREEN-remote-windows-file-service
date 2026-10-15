@@ -11,12 +11,70 @@ internal sealed class DriveMetadataCache(TimeSpan lifetime)
     private const int MaximumChildrenToSeed = 1024;
     private readonly object _gate = new();
     private readonly Dictionary<string, CacheEntry> _entries = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Lazy<FileEntry>> _statFlights = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Lazy<IReadOnlyList<FileEntry>>> _listFlights = new(StringComparer.OrdinalIgnoreCase);
     private readonly long _lifetimeMilliseconds = Math.Max(1, (long)lifetime.TotalMilliseconds);
     private long _generation;
 
     internal long Generation
     {
         get { lock (_gate) return _generation; }
+    }
+
+    internal FileEntry GetStat(string path, Func<FileEntry> load)
+    {
+        var key = Normalize(path);
+        Lazy<FileEntry> flight;
+        lock (_gate)
+        {
+            if (TryGetStat(key, out var cached)) return cached;
+            if (!_statFlights.TryGetValue(key, out flight!))
+            {
+                var generation = _generation;
+                flight = new Lazy<FileEntry>(() =>
+                {
+                    var entry = load();
+                    StoreStat(key, entry, generation);
+                    return entry;
+                }, LazyThreadSafetyMode.ExecutionAndPublication);
+                _statFlights.Add(key, flight);
+            }
+        }
+        try { return flight.Value; }
+        finally
+        {
+            lock (_gate)
+                if (_statFlights.TryGetValue(key, out var current) && ReferenceEquals(current, flight))
+                    _statFlights.Remove(key);
+        }
+    }
+
+    internal IReadOnlyList<FileEntry> GetList(string path, Func<IReadOnlyList<FileEntry>> load)
+    {
+        var key = Normalize(path);
+        Lazy<IReadOnlyList<FileEntry>> flight;
+        lock (_gate)
+        {
+            if (TryGetList(key, out var cached)) return cached;
+            if (!_listFlights.TryGetValue(key, out flight!))
+            {
+                var generation = _generation;
+                flight = new Lazy<IReadOnlyList<FileEntry>>(() =>
+                {
+                    var entries = load().ToArray();
+                    StoreList(key, entries, generation);
+                    return entries;
+                }, LazyThreadSafetyMode.ExecutionAndPublication);
+                _listFlights.Add(key, flight);
+            }
+        }
+        try { return flight.Value; }
+        finally
+        {
+            lock (_gate)
+                if (_listFlights.TryGetValue(key, out var current) && ReferenceEquals(current, flight))
+                    _listFlights.Remove(key);
+        }
     }
 
     internal bool TryGetStat(string path, out FileEntry entry)
@@ -94,6 +152,8 @@ internal sealed class DriveMetadataCache(TimeSpan lifetime)
         {
             unchecked { _generation++; }
             _entries.Clear();
+            _statFlights.Clear();
+            _listFlights.Clear();
         }
     }
 

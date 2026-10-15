@@ -18,23 +18,9 @@ internal sealed class DriveFileSystem : IDokanOperations
     private IFileBackend Backend => _backend;
     internal string BackendKind => Backend is SmbBackend ? "LAN-SMB" : Backend is RemoteBackend ? "UGREENlink" : "injected";
 
-    private FileEntry Stat(string path)
-    {
-        if (_metadata.TryGetStat(path, out var cached)) return cached;
-        var generation = _metadata.Generation;
-        var entry = Backend.Stat(path);
-        _metadata.StoreStat(path, entry, generation);
-        return entry;
-    }
+    private FileEntry Stat(string path) => _metadata.GetStat(path, () => Backend.Stat(path));
 
-    private IReadOnlyList<FileEntry> List(string path)
-    {
-        if (_metadata.TryGetList(path, out var cached)) return cached;
-        var generation = _metadata.Generation;
-        var entries = Backend.List(path);
-        _metadata.StoreList(path, entries, generation);
-        return entries;
-    }
+    private IReadOnlyList<FileEntry> List(string path) => _metadata.GetList(path, () => Backend.List(path));
 
     private void InvalidateMetadata() => _metadata.Invalidate();
 
