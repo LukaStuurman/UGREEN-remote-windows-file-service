@@ -12,6 +12,13 @@ internal sealed record UgreenLinkSetupTarget(UgreenLinkSetupKind Kind, Uri Addre
 
 internal static class UgreenLinkSetupAddress
 {
+    internal static UgreenLinkSetupTarget? ParseConnection(string address, string smbPath)
+    {
+        if (!string.IsNullOrWhiteSpace(smbPath)) TechbaseSharePath.ValidateUncRoot(smbPath);
+        if (string.IsNullOrWhiteSpace(address) && !string.IsNullOrWhiteSpace(smbPath)) return null;
+        return Parse(address);
+    }
+
     private static readonly Regex NasIdPath = new("^/[A-Za-z0-9._-]{1,96}/?\\z", RegexOptions.CultureInvariant);
 
     public static UgreenLinkSetupTarget Parse(string value)

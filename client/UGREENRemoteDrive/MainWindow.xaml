@@ -24,7 +24,7 @@
             <TextBlock Text="UGREENlink-adres van je NAS of de Remote Drive-snelkoppeling" FontWeight="SemiBold" />
             <TextBox x:Name="RemoteUrlBox" Height="32" Margin="0,4,0,0" VerticalContentAlignment="Center"
                      ToolTip="Vul https://ug.link/… in, meld aan en open zelf de Remote Drive-tegel. De app onthoudt daarna automatisch het aparte app-adres." />
-            <TextBlock Text="Handiger: vul https://ug.link/… in. Meld daarna aan in dit venster en klik één keer op de Remote Drive-tegel; het app-adres wordt automatisch onthouden. Geen aparte toegangscode nodig."
+            <TextBlock Text="Voor UGREENlink: vul https://ug.link/… in en open na aanmelden één keer de Remote Drive-tegel. Voor je eigen WireGuard-VPN mag dit veld leeg blijven; vul dan hieronder alleen de Techbase SMB-share in."
                        FontSize="11" Foreground="#666" Margin="0,3,0,0" TextWrapping="Wrap" />
         </StackPanel>
 
@@ -37,9 +37,9 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Margin="0,0,14,0">
-                    <TextBlock Text="Techbase SMB-share (alleen thuis op het LAN)" FontWeight="SemiBold" />
+                    <TextBlock Text="Techbase SMB-share (LAN of eigen WireGuard-VPN)" FontWeight="SemiBold" />
                     <TextBox x:Name="SmbPathBox" Height="30" Margin="0,4,0,0" VerticalContentAlignment="Center"
-                             ToolTip="Alleen de share-root, bijvoorbeeld \\NASNAAM\Techbase." />
+                             ToolTip="Alleen de share-root: \\NASNAAM\Techbase op het LAN, of \\10.203.0.1\Techbase via de directe WireGuard-container." />
                 </StackPanel>
                 <StackPanel Grid.Column="1" Width="88" Margin="0,0,14,0">
                     <TextBlock Text="Schijfletter" FontWeight="SemiBold" />

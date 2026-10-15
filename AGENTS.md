@@ -10,6 +10,17 @@ De eerste implementatie staat op `main` in commit `456fe4d` (`feat: add UGREENli
 
 ## Huidige status — 2026-09-27
 
+### Eigen directe WireGuard-route — 2026-10-15
+
+- Gebruiker vroeg een Docker-app voor direct verbinden en koos expliciet WireGuard. `v0.4.0-preview.1` voegt daarvoor een apart Compose-project toe. De bestaande UGREENlink-container en browser-originregels blijven intact. Geen live NAS-/routerwijzigingen zonder concrete configuratie en afstemming.
+- `direct-wireguard/` gebruikt standaard WireGuard-kernel of wireguard-go bij ontbrekende kernelondersteuning, met NET_ADMIN en /dev/net/tun. Geen privileged/hostnet/SYS_MODULE. Eén peer, privé Docker-statevolume, geen NAS-datamap-mount. Publiceert uitsluitend IPv4 UDP 51820 (of gekozen WG_PORT); vereist bereikbare eigen IPv4/DDNS en router-forwarding. Geen cloud/P2P-coördinatieservice of relayfallback.
+- Interne tunnel 10.203.0.1/32 met Windows-peer 10.203.0.2/32. INPUT/OUTPUT/FORWARD standaard DROP; uitsluitend versleuteld WireGuard-UDP en proxy-TCP van wg0:445 naar de ingestelde private NAS_ADDRESS:445. Geen NAT of algemene LAN-/internetforwarding. Root-namespacefilters wijzigen geen hostfirewall.
+- De TCP-proxy kan SMB-sharenamen niet filteren: verplichte aparte UGOS-SMB-accountrechten beperken toegang tot Techbase. De Windows-app weigert andere shares/submap-roots. Gebruik geen algemeen NAS-beheeraccount of guest. Windows bewaart zijn SMB-identiteit; app/config/logs krijgen geen wachtwoord.
+- Privésleutels worden uitsluitend tijdens starten gegenereerd en blijven in het statevolume; cliëntprofiel via geautoriseerde Docker-export, nooit logs/Git/release. Status toont uitsluitend ready/handshake/leeftijd. Release-ZIP bevat alleen publieke bron/configtemplates, geen gegenereerde profielen.
+- Windows ondersteunt nu SMB-only (UGREENlink-veld leeg met geldige Techbase UNC) en probeert bereikbare SMB direct vóór browseraanmelding. Gereserveerd endpoint geeft WireGuard-SMB als status, zonder daarmee een handshake te bewijzen.
+- Netwerkvoorcontrole op gebruikerscomputer: lokale UDP 51820 niet bezet, geen bruikbare globale IPv6, router-UPnP niet uitleesbaar. Gebruiker zit bij computer/NAS op hetzelfde netwerk en weet alleen van een Ubiquiti-punt. Routermodel/WAN-adres, CGNAT, NAS-LAN-adres, TUN/kernel en externe UDP-bereikbaarheid zijn nog onbekend; claim geen open poort of werkende live VPN.
+- CI toetst WireGuard-invoer/firewall/keys en een echte userspace-tunnel met bytegetrouwe SMB upload/download plus geblokkeerde forwarding tussen wegwerpcontainers. Dit is geen NAS-/WAN-integratietest. Zie docs/direct-wireguard.md.
+
 ### Binaire overdracht, prefetch en metadata — 2026-10-15
 
 - `v0.3.7-preview.1` is een client-update: ruwe gedeelde WebView2-buffers voor reads/writes, begrensde achtergrond-prefetch van het volgende venster en single-flight voor stat/list. Geen NAS-deployment nodig voor deze drie wijzigingen; server-update uit `v0.3.6-preview.1` blijft apart aanbevolen.

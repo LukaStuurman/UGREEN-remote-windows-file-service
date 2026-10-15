@@ -81,7 +81,8 @@ public partial class MainWindow : Window
         AutoOpenShortcutBox.IsChecked = _settings.AutoOpenShortcut;
         ShortcutTileNameBox.Text = _settings.ShortcutTileName;
         _connectAndMountRequested = _settings.AutoOpenShortcut &&
-            (!string.IsNullOrWhiteSpace(_settings.RemoteUrl) || !string.IsNullOrWhiteSpace(_settings.NasPortalUrl));
+            (!string.IsNullOrWhiteSpace(_settings.RemoteUrl) || !string.IsNullOrWhiteSpace(_settings.NasPortalUrl) ||
+             !string.IsNullOrWhiteSpace(_settings.SmbPath));
         try
         {
             Directory.CreateDirectory(SettingsStore.AppDirectory);
@@ -122,6 +123,7 @@ public partial class MainWindow : Window
         }
         RebuildBackends();
         if (_backends is not null) _ = _backends.ProbeSmbAsync(useRecentResult: true);
+        _ = TryMountFromSmbAsync();
         _statusTimer.Start();
         if (!_shortcutDiscoveryActive && Environment.GetCommandLineArgs().Contains("--minimized", StringComparer.OrdinalIgnoreCase)) Hide();
     }
@@ -986,10 +988,11 @@ public partial class MainWindow : Window
             _connectAndMountRequested = true;
             _autoMountAttempted = false;
             SaveSettingsFromForm(navigateToRemote: false);
+            if (await TryMountFromSmbAsync()) return;
             if (string.IsNullOrWhiteSpace(_settings.RemoteUrl))
             {
                 if (string.IsNullOrWhiteSpace(_settings.NasPortalUrl))
-                    throw new InvalidOperationException("Vul eerst het UGREENlink-adres van de NAS of de Remote Drive-snelkoppeling in.");
+                    throw new InvalidOperationException("De Techbase SMB-share is niet bereikbaar. Activeer je WireGuard-tunnel of controleer het LAN-adres en je Windows SMB-aanmelding.");
                 _shortcutDiscoveryActive = true;
                 _loginFlowActive = true;
                 _healthNavigationAttempted = false;
@@ -1023,6 +1026,7 @@ public partial class MainWindow : Window
         RebuildBackends();
         if (_backends is null) throw new InvalidOperationException("Controleer het UGREENlink-adres.");
         await _backends.ProbeSmbAsync(useRecentResult: true);
+        if (_dokanInstance is not null) return;
         if (!_backends.SmbReachable && _remote?.IsAuthenticated != true)
             throw new InvalidOperationException("De NAS is nog niet verbonden. Meld aan bij UGREENlink en probeer opnieuw.");
 
@@ -1229,23 +1233,21 @@ public partial class MainWindow : Window
         if (_dokanInstance is not null)
             throw new InvalidOperationException("Ontkoppel de schijf voordat je instellingen wijzigt.");
         var urlText = RemoteUrlBox.Text.Trim();
-        var setupTarget = UgreenLinkSetupAddress.Parse(urlText);
         var smbPath = SmbPathBox.Text.Trim();
-        if (!string.IsNullOrWhiteSpace(smbPath))
-            _ = TechbaseSharePath.ValidateUncRoot(smbPath);
+        var setupTarget = UgreenLinkSetupAddress.ParseConnection(urlText, smbPath);
         var drive = DriveLetterBox.SelectedItem as string;
         if (string.IsNullOrWhiteSpace(drive)) throw new InvalidOperationException("Kies een driveletter.");
         var tileName = ShortcutTileNameBox.Text.Trim();
         if (DesktopTileSelection.Validate("", tileName) is null)
             throw new InvalidOperationException("Vul de exacte NAS-tegelnaam in (maximaal 128 tekens).");
-        var sameShortcut = setupTarget.Kind == UgreenLinkSetupKind.Shortcut &&
+        var sameShortcut = setupTarget?.Kind == UgreenLinkSetupKind.Shortcut &&
             setupTarget.Address.AbsoluteUri.Equals(_settings.RemoteUrl, StringComparison.OrdinalIgnoreCase);
         var sameTileName = tileName.Equals(_settings.ShortcutTileName, StringComparison.OrdinalIgnoreCase);
 
         _settings = new DriveSettings
         {
-            RemoteUrl = setupTarget.Kind == UgreenLinkSetupKind.Shortcut ? setupTarget.Address.AbsoluteUri : "",
-            NasPortalUrl = setupTarget.Kind == UgreenLinkSetupKind.NasPortal ? setupTarget.Address.AbsoluteUri :
+            RemoteUrl = setupTarget?.Kind == UgreenLinkSetupKind.Shortcut ? setupTarget.Address.AbsoluteUri : "",
+            NasPortalUrl = setupTarget?.Kind == UgreenLinkSetupKind.NasPortal ? setupTarget.Address.AbsoluteUri :
                 sameShortcut ? _settings.NasPortalUrl : "",
             SmbPath = smbPath,
             DriveLetter = drive,
@@ -1305,8 +1307,7 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(_settings.RemoteUrl))
         {
             _bridge.ClearConfiguration();
-            _remote = null;
-            _backends = null;
+            _remote ??= new RemoteBackend(_bridge);
             UpdateBackendText();
             return;
         }

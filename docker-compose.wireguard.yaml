@@ -1,0 +1,33 @@
+services:
+  techbase-wireguard:
+    build:
+      context: https://github.com/LukaStuurman/UGREEN-remote-windows-file-service.git#${UGREEN_DRIVE_REF:-v0.4.0-preview.1}:direct-wireguard
+    image: ugreen-techbase-wireguard:${UGREEN_DRIVE_REF:-v0.4.0-preview.1}
+    container_name: ugreen-techbase-wireguard
+    restart: unless-stopped
+    environment:
+      NAS_ADDRESS: "${NAS_ADDRESS:?Set the NAS LAN IPv4 address}"
+      WG_ENDPOINT: "${WG_ENDPOINT:?Set your own public IP or DDNS hostname, not a UGREENlink URL}"
+      WG_PORT: "${WG_PORT:-51820}"
+    ports:
+      - "0.0.0.0:${WG_PORT:-51820}:51820/udp"
+    volumes:
+      - wireguard-state:/config
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_ADMIN
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /run:rw,noexec,nosuid,size=16m
+      - /tmp:rw,noexec,nosuid,size=16m
+    pids_limit: 128
+    mem_limit: 256m
+
+volumes:
+  wireguard-state:

@@ -10,3 +10,7 @@ __pycache__/
 *.log
 installer/output/
 node_modules/
+*.key
+*.psk
+Techbase-direct.conf
+.wireguard-*

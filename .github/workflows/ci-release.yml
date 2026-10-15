@@ -104,6 +104,46 @@ jobs:
             --header 'X-UGREEN-Remote-Drive: 1' \
             "$list_url" | python -c 'import json, sys; assert json.load(sys.stdin) == []'
 
+  wireguard-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Test private WireGuard configuration and firewall policy
+        working-directory: direct-wireguard
+        run: python -m unittest discover -s tests -v
+      - name: Validate direct-only Compose exposure
+        shell: bash
+        run: |
+          set -euo pipefail
+          export NAS_ADDRESS=192.168.50.10 WG_ENDPOINT=vpn.example.com WG_PORT=51820
+          config="$(docker compose -f docker-compose.wireguard.yaml config --format json)"
+          printf '%s' "$config" | jq -e '
+            .services["techbase-wireguard"] |
+            (.ports | length == 1) and
+            (.ports[0].protocol == "udp") and (.ports[0].target == 51820) and
+            (.volumes | length == 1) and (.volumes[0].type == "volume") and
+            (.volumes[0].target == "/config") and (.read_only == true) and
+            (.cap_drop == ["ALL"]) and
+            (.cap_add | sort == ["NET_ADMIN", "NET_BIND_SERVICE"]) and
+            (.network_mode != "host") and (.privileged != true)
+          ' >/dev/null
+      - name: Prepare TUN on disposable runner only
+        shell: bash
+        run: |
+          if [ ! -c /dev/net/tun ]; then
+            sudo modprobe tun || true
+            sudo mkdir -p /dev/net
+            sudo mknod /dev/net/tun c 10 200
+          fi
+      - name: Verify encrypted SMB round trip and blocked forwarding in isolated containers
+        run: bash direct-wireguard/tests/smoke.sh
+
   windows-build:
     runs-on: windows-latest
     timeout-minutes: 30
@@ -149,6 +189,19 @@ jobs:
           $zipHash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
           "$zipHash  UGREENRemoteDrive-win-x64.zip" |
             Set-Content -NoNewline -Encoding ascii "$archive.sha256"
+      - name: Package direct WireGuard Docker project without secrets
+        shell: pwsh
+        run: |
+          $bundle = Join-Path $env:RUNNER_TEMP 'UGREENDirectWireGuard'
+          New-Item -ItemType Directory -Path (Join-Path $bundle 'direct-wireguard') -Force | Out-Null
+          New-Item -ItemType Directory -Path (Join-Path $bundle 'docs') -Force | Out-Null
+          Copy-Item docker-compose.wireguard.yaml, wireguard.env.example -Destination $bundle
+          Copy-Item direct-wireguard/Dockerfile, direct-wireguard/app.py -Destination (Join-Path $bundle 'direct-wireguard')
+          Copy-Item docs/direct-wireguard.md -Destination (Join-Path $bundle 'docs')
+          $archive = Join-Path $env:RUNNER_TEMP 'UGREENDirectWireGuard-docker.zip'
+          Compress-Archive -Path (Join-Path $bundle '*') -DestinationPath $archive
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  UGREENDirectWireGuard-docker.zip" | Set-Content -NoNewline -Encoding ascii "$archive.sha256"
       - name: Build installer with bundled official Dokany
         shell: pwsh
         env:
@@ -194,6 +247,8 @@ jobs:
             ${{ runner.temp }}/UGREENRemoteDrive.exe.sha256
             ${{ runner.temp }}/UGREENRemoteDrive-win-x64.zip
             ${{ runner.temp }}/UGREENRemoteDrive-win-x64.zip.sha256
+            ${{ runner.temp }}/UGREENDirectWireGuard-docker.zip
+            ${{ runner.temp }}/UGREENDirectWireGuard-docker.zip.sha256
           if-no-files-found: error
           retention-days: 7
 
@@ -206,6 +261,7 @@ jobs:
     needs:
       - server-tests
       - container-smoke
+      - wireguard-smoke
       - windows-build
     runs-on: ubuntu-latest
     permissions:
@@ -250,6 +306,8 @@ jobs:
             dist/UGREENRemoteDrive.exe.sha256 \
             dist/UGREENRemoteDrive-win-x64.zip \
             dist/UGREENRemoteDrive-win-x64.zip.sha256 \
+            dist/UGREENDirectWireGuard-docker.zip \
+            dist/UGREENDirectWireGuard-docker.zip.sha256 \
             --repo "$GITHUB_REPOSITORY" \
             "${tag_args[@]}" \
             "${prerelease_args[@]}" \
