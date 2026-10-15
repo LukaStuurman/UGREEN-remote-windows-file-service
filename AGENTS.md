@@ -10,6 +10,14 @@ De eerste implementatie staat op `main` in commit `456fe4d` (`feat: add UGREENli
 
 ## Huidige status — 2026-09-27
 
+### Aanmelding en tegelactivatie — 2026-10-15
+
+- `v0.3.5-preview.1` gebruikt het bestaande vaste WebView2-profiel, zet op gebruikerskeuze de native wachtwoordmanager aan en selecteert de bestaande UGOS-optie ingelogd blijven. Clientcode leest geen wachtwoorden, browser-passworddatabase, cookies of opslagtokens. Een native browserbewaarvraag blijft gebruikerskeuze; er komen geen credentials in config/logs. De NAS kan de sessie nog verlopen/intrekken of MFA vereisen.
+- `DesktopAutomation.cs` en het ingebedde `Browser/DesktopAutomation.js` vervangen de oude vierseconden-anchorzoeker. De helper wacht door aanmelding en SPA-routeveranderingen heen, gebruikt het echte `.apply-list .list-item` / `.click-region`-klikvlak en bewaakt eenmalig openen. De generieke selectors zijn gecontroleerd tegen de openbaar geserveerde UGOS-frontendcode, niet tegen een uitgelezen ingelogde browsersessie.
+- De standaardtegelnaam is `ugreen-remote-drive`; afwijkende namen zijn instelbaar. Een recente tegelnaam/module-id wordt uitsluitend na goedgekeurde popupbestemming lokaal onthouden. Popup-origin-, frame- en bootstrapcontroles blijven intact. Geen persoonlijke link of NAS-identifier hardcoden of opnemen in Git.
+- De aanmeld- en verbindingsvoorkeuren staan standaard aan. Met opgeslagen configuratie probeert de app bij openen automatisch te verbinden. `Wis lokale aanmelding` wist ook site-opslag en native opgeslagen credentials; updates behouden het profiel. Uitzetten van onthouden verwijdert oude browserdata niet vanzelf.
+- Browsertests staan in `client/browser-tests` (npm ci, npm test) en voeren de echte helper uit in jsdom met UGOS-vormige fixtures. Ze toetsen trage aanmelding, latere desktoprendering, echte klikvlakken, dubbele namen, module-id, één klik en geweigerde origins. .NET toetst instellingsmigratie en beperkte identiteit/config. Een echte NAS-reconnect of sessie na Windows-herstart is hiermee nog niet aangetoond; rapporteer die beperking.
+
 ### Installer-update — 2026-10-15
 
 - `v0.3.4-preview.1` voegt `UGREENRemoteDrive-Setup-win-x64.exe` toe. Dit is de aanbevolen download; de losse EXE en ZIP zijn portable en vereisen een reeds geïnstalleerde Dokany-driver.
@@ -49,7 +57,7 @@ Windows Explorer
 
 - Elke deployment gebruikt de eigen Docker-desktopshortcut van deze container. Hergebruik of publiceer geen persoonlijke UGREENlink-shortcuts.
 - De UGREENlink-login gebeurt in de client in WebView2. API-calls worden als `fetch` vanuit die pagina gedaan, met `credentials: include`, zodat de browser zijn normale UGREENlink-sessie gebruikt.
-- De client leest, kopieert of exporteert geen UGREENlink-cookies en bewaart het NAS-wachtwoord niet. De WebView2-profielmap is lokaal voor deze app.
+- De client leest, kopieert of exporteert geen UGREENlink-cookies en leest/bewaart zelf geen NAS-wachtwoord. Op expliciet verzoek van de gebruiker kan de native WebView2-wachtwoordmanager het wachtwoord in het eigen lokale profiel bewaren na de native bewaarvraag. De appconfig en logs bevatten geen credentials; Edge-profielen blijven ongemoeid.
 - De nieuwe implementatie gebruikt geen tweede bearer-token. UGREENlink-login beschermt de shortcut; fetch-verzoeken gebruiken `credentials: include`. De API verwacht daarnaast `X-UGREEN-Remote-Drive: 1` als browser-/client-header om gewone cross-site form-verzoeken te blokkeren. Dit is geen gedeelde geheime sleutel en geeft binnen de shortcut geen per-gebruiker-autorisatie.
 - De bridge controleert HTTPS, uitsluitend `.ugapp.link` of `.ugdocker.link`, en dezelfde exacte origin voor de huidige pagina en API-doel-URL. Verruim deze controle niet naar willekeurige domeinen.
 - De UGREENlink-proxy moet de containershortcut op poort `18765` kunnen bereiken, hoewel de Docker-hostpoort op `127.0.0.1` gebonden is. De gebruiker rapporteerde eerder een werkende Techbase-schijf; test de proxy opnieuw bij wijzigingen of als remote toegang faalt.

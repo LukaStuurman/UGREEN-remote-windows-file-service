@@ -9,6 +9,10 @@ internal sealed class DriveSettings
     public string SmbPath { get; set; } = "";
     public string DriveLetter { get; set; } = "U:";
     public bool AutoStart { get; set; }
+    public bool RememberLogin { get; set; } = true;
+    public bool AutoOpenShortcut { get; set; } = true;
+    public string ShortcutTileName { get; set; } = "ugreen-remote-drive";
+    public string ShortcutTileId { get; set; } = "";
 }
 
 internal static class SettingsStore
@@ -41,7 +45,11 @@ internal static class SettingsStore
             NasPortalUrl = settings.NasPortalUrl.Trim(),
             SmbPath = settings.SmbPath.Trim(),
             DriveLetter = settings.DriveLetter.Trim().ToUpperInvariant(),
-            AutoStart = settings.AutoStart
+            AutoStart = settings.AutoStart,
+            RememberLogin = settings.RememberLogin,
+            AutoOpenShortcut = settings.AutoOpenShortcut,
+            ShortcutTileName = settings.ShortcutTileName.Trim(),
+            ShortcutTileId = settings.ShortcutTileId.Trim()
         };
         var temp = SettingsPath + ".tmp";
         File.WriteAllText(temp, JsonSerializer.Serialize(copy, new JsonSerializerOptions { WriteIndented = true }));

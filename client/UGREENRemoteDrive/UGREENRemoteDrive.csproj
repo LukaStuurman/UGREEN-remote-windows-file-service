@@ -14,6 +14,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Browser\DesktopAutomation.js" />
     <PackageReference Include="DokanNet" Version="2.3.0.3" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4191.47" />
   </ItemGroup>

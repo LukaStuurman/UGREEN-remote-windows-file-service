@@ -51,6 +51,9 @@ public partial class MainWindow : Window
     private bool _ticketBootstrapCleanupInProgress;
     private PendingAutomaticTileOpen? _pendingAutomaticTileOpen;
     private int _automaticTileOpenAttemptedGeneration = -1;
+    private DesktopTileSelection? _lastDesktopSelection;
+    private int _lastDesktopSelectionGeneration = -1;
+    private DateTimeOffset _lastDesktopSelectionAt;
 
     public MainWindow()
     {
@@ -73,6 +76,11 @@ public partial class MainWindow : Window
         SmbPathBox.Text = _settings.SmbPath;
         if (DriveLetterBox.Items.Contains(_settings.DriveLetter)) DriveLetterBox.SelectedItem = _settings.DriveLetter;
         StartupBox.IsChecked = _settings.AutoStart;
+        RememberLoginBox.IsChecked = _settings.RememberLogin;
+        AutoOpenShortcutBox.IsChecked = _settings.AutoOpenShortcut;
+        ShortcutTileNameBox.Text = _settings.ShortcutTileName;
+        _connectAndMountRequested = _settings.AutoOpenShortcut &&
+            (!string.IsNullOrWhiteSpace(_settings.RemoteUrl) || !string.IsNullOrWhiteSpace(_settings.NasPortalUrl));
         try
         {
             Directory.CreateDirectory(SettingsStore.AppDirectory);
@@ -82,6 +90,9 @@ public partial class MainWindow : Window
             Browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
             Browser.CoreWebView2.Settings.AreDevToolsEnabled = false;
             Browser.CoreWebView2.Settings.IsStatusBarEnabled = false;
+            // Use the browser's own per-Windows-user password manager. The client
+            // never reads password fields, cookies, or the password database.
+            Browser.CoreWebView2.Profile.IsPasswordAutosaveEnabled = _settings.RememberLogin;
             _bridge = new RemoteBridge(Browser);
             await _bridge.InitializeAsync();
             _remote = new RemoteBackend(_bridge);
@@ -89,6 +100,8 @@ public partial class MainWindow : Window
             Browser.NavigationCompleted += Browser_NavigationCompleted;
             Browser.CoreWebView2.NewWindowRequested += Browser_NewWindowRequested;
             Browser.CoreWebView2.WebResourceResponseReceived += Browser_WebResourceResponseReceived;
+            Browser.CoreWebView2.SourceChanged += Browser_SourceChanged;
+            Browser.CoreWebView2.WebMessageReceived += Browser_DesktopSelectionReceived;
         }
         catch (Exception ex)
         {
@@ -109,6 +122,74 @@ public partial class MainWindow : Window
         RebuildBackends();
         _statusTimer.Start();
         if (!_shortcutDiscoveryActive && Environment.GetCommandLineArgs().Contains("--minimized", StringComparer.OrdinalIgnoreCase)) Hide();
+    }
+
+    private void Browser_SourceChanged(object? sender, CoreWebView2SourceChangedEventArgs e)
+    {
+        // UGOS signs in through a SPA route change; there need not be another
+        // NavigationCompleted event after the login form disappears.
+        if (e.IsNewDocument || Browser.CoreWebView2 is not { } core ||
+            !RemoteBridge.IsTrustedUgreenDesktopDocument(core.Source)) return;
+        _automaticTileOpenAttemptedGeneration = -1;
+        _pendingAutomaticTileOpen = null;
+        TryStartAutomaticTileOpen();
+    }
+
+    private void ConnectionPreferencesChanged(object sender, RoutedEventArgs e)
+    {
+        if (Browser.CoreWebView2 is not { } core) return;
+        try
+        {
+            _settings.RememberLogin = RememberLoginBox.IsChecked == true;
+            _settings.AutoOpenShortcut = AutoOpenShortcutBox.IsChecked == true;
+            core.Profile.IsPasswordAutosaveEnabled = _settings.RememberLogin;
+            SettingsStore.Save(_settings);
+            if (!_settings.AutoOpenShortcut) _connectAndMountRequested = false;
+            _automaticTileOpenAttemptedGeneration = -1;
+            _pendingAutomaticTileOpen = null;
+            TryStartAutomaticTileOpen();
+        }
+        catch (Exception ex)
+        {
+            DriveLog.Error("Connection preferences could not be saved: " + ex.GetType().Name);
+            StatusText.Text = "De aanmeldvoorkeuren konden niet worden opgeslagen. Probeer opnieuw.";
+        }
+    }
+
+    private void Browser_DesktopSelectionReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+    {
+        var core = Browser.CoreWebView2;
+        if (core is null || !RemoteBridge.IsTrustedUgreenDesktopFrame(e.Source, core.Source) ||
+            e.WebMessageAsJson.Length > 2048) return;
+        try
+        {
+            using var document = JsonDocument.Parse(e.WebMessageAsJson);
+            var root = document.RootElement;
+            if (!root.TryGetProperty("kind", out var kind) || kind.GetString() != "ugreen-desktop-selection") return;
+            var selection = DesktopTileSelection.Validate(root.GetProperty("id").GetString(), root.GetProperty("name").GetString());
+            if (selection is null)
+            {
+                _lastDesktopSelection = null;
+                return;
+            }
+            _lastDesktopSelection = selection;
+            _lastDesktopSelectionGeneration = _navigationGeneration;
+            _lastDesktopSelectionAt = DateTimeOffset.UtcNow;
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or KeyNotFoundException) { }
+    }
+
+    private void RememberApprovedDesktopSelection()
+    {
+        if (_lastDesktopSelection is not { } selection || _lastDesktopSelectionGeneration != _navigationGeneration ||
+            DateTimeOffset.UtcNow - _lastDesktopSelectionAt > TimeSpan.FromSeconds(10)) return;
+        // This method is called only after the popup destination has passed the
+        // configured-origin (or explicit first-time discovery) checks.
+        _settings.ShortcutTileId = selection.Id;
+        _settings.ShortcutTileName = selection.Name;
+        ShortcutTileNameBox.Text = selection.Name;
+        SettingsStore.Save(_settings);
+        _lastDesktopSelection = null;
     }
 
     private void Browser_NavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
@@ -427,6 +508,7 @@ public partial class MainWindow : Window
 
             try
             {
+                RememberApprovedDesktopSelection();
                 core.Navigate(requestedTarget.AbsoluteUri);
                 if (openAuthBootstrap) _ = ExpireAuthBootstrapPermitAsync(requestedTarget, scheduledGeneration);
             }
@@ -461,6 +543,7 @@ public partial class MainWindow : Window
                 // Persist only the stable shortcut origin. Never save the one-time ticket/query.
                 var root = new Uri(target.GetLeftPart(UriPartial.Authority) + "/");
                 _settings.RemoteUrl = root.AbsoluteUri;
+                RememberApprovedDesktopSelection();
                 SettingsStore.Save(_settings);
                 RemoteUrlBox.Text = root.AbsoluteUri;
                 ConfigureRemote();
@@ -786,94 +869,60 @@ public partial class MainWindow : Window
     private bool TryStartAutomaticTileOpen()
     {
         var core = Browser.CoreWebView2;
-        if (_shortcutDiscoveryActive || _bridge is null || core is null ||
+        if (_bridge is null || core is null ||
             _activePage != BrowserPage.Login || _ticketBootstrapCleanupRequired || _ticketBootstrapCleanupInProgress ||
             _automaticTileOpenAttemptedGeneration == _navigationGeneration ||
             !RemoteBridge.IsTrustedUgreenDesktopDocument(core.Source) ||
-            !TryBuildConfiguredServiceRoot(out var serviceRoot) ||
             !Uri.TryCreate(core.Source, UriKind.Absolute, out var desktop)) return false;
 
         _automaticTileOpenAttemptedGeneration = _navigationGeneration;
         var desktopOrigin = new Uri(desktop.GetLeftPart(UriPartial.Authority) + "/");
-        var permit = new PendingAutomaticTileOpen(desktopOrigin, serviceRoot, _navigationGeneration);
+        var configured = TryBuildConfiguredServiceRoot(out var serviceRoot);
+        var permit = configured && _settings.AutoOpenShortcut
+            ? new PendingAutomaticTileOpen(desktopOrigin, serviceRoot, _navigationGeneration) : null;
         _pendingAutomaticTileOpen = permit;
-        StatusText.Text = "UGREENlink is aangemeld. De app probeert de opgeslagen Remote Drive-tegel te openen…";
-        DriveLog.Info("Automatic tile discovery started on the trusted UGREENlink desktop; only an exact configured shortcut link may be clicked.");
-        _ = ClickConfiguredDesktopTileAsync(permit);
+        StatusText.Text = configured && _settings.AutoOpenShortcut
+            ? "Meld je zo nodig aan. De Remote Drive-tegel wordt automatisch geopend zodra het NAS-bureaublad klaar is…"
+            : "Meld je aan en open de Remote Drive-tegel één keer. De app onthoudt de gekozen tegel en de aanmelding.";
+        DriveLog.Info("Trusted desktop helper started; session preference enabled without reading credentials; shortcut popup remains origin-restricted.");
+        _ = ClickConfiguredDesktopTileAsync(permit, configured ? serviceRoot : null, _navigationGeneration);
         return true;
     }
 
-    private async Task ClickConfiguredDesktopTileAsync(PendingAutomaticTileOpen permit)
+    private async Task ClickConfiguredDesktopTileAsync(PendingAutomaticTileOpen? permit, Uri? serviceRoot, int generation)
     {
         try
         {
             var core = Browser.CoreWebView2;
-            if (core is null || _navigationGeneration != permit.Generation ||
+            if (core is null || _navigationGeneration != generation ||
                 !RemoteBridge.IsTrustedUgreenDesktopDocument(core.Source))
             {
-                ClearAutomaticTilePermit(permit);
+                if (permit is not null) ClearAutomaticTilePermit(permit);
                 return;
             }
 
-            var expectedOrigin = JsonSerializer.Serialize(permit.ServiceRoot.GetLeftPart(UriPartial.Authority));
-            var script = $$"""
-                (() => {
-                    const expectedOrigin = {{expectedOrigin}};
-                    let observer;
-                    let timeout;
-                    const stopWatching = () => {
-                        if (observer) observer.disconnect();
-                        clearTimeout(timeout);
-                    };
-                    timeout = setTimeout(stopWatching, 4000);
-                    const tryClick = () => {
-                        for (const anchor of document.querySelectorAll('a[href]')) {
-                            let url;
-                            try { url = new URL(anchor.href, location.href); } catch { continue; }
-                            const exactRoot = url.pathname === '/' && !url.search && !url.hash;
-                            const exactBootstrap = url.pathname === '/api/ugreen/auth' &&
-                                url.search.length > 1 && url.search.length <= 2049 && !url.hash;
-                            if (url.protocol !== 'https:' || url.origin !== expectedOrigin || url.username || url.password ||
-                                (url.port && url.port !== '443') || (!exactRoot && !exactBootstrap)) continue;
-                            const previousTarget = anchor.getAttribute('target');
-                            anchor.setAttribute('target', '_blank');
-                            anchor.click();
-                            if (previousTarget === null) anchor.removeAttribute('target');
-                            else anchor.setAttribute('target', previousTarget);
-                            stopWatching();
-                            return true;
-                        }
-                        return false;
-                    };
-                    if (!tryClick()) {
-                        observer = new MutationObserver(tryClick);
-                        if (document.documentElement) observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['href'] });
-                    }
-                    return true;
-                })()
-                """;
-            var result = await core.ExecuteScriptAsync(script);
+            var result = await core.ExecuteScriptAsync(DesktopAutomation.BuildScript(_settings, serviceRoot));
             if (!string.Equals(result, "true", StringComparison.OrdinalIgnoreCase))
             {
-                ClearAutomaticTilePermit(permit);
+                if (permit is not null) ClearAutomaticTilePermit(permit);
                 return;
             }
 
-            // The observer can wait briefly for the desktop tile to render. Keep the one-shot permit
-            // only for that bounded period, then fall back to an explicit tile click.
-            await Task.Delay(TimeSpan.FromSeconds(5));
-            if (_pendingAutomaticTileOpen == permit)
+            // Keep watching through a slow sign-in and delayed SPA tile rendering.
+            // Navigation or a successful exact popup invalidates this permit.
+            await Task.Delay(TimeSpan.FromMinutes(DesktopAutomation.WaitMinutes));
+            if (permit is not null && _pendingAutomaticTileOpen == permit)
             {
                 ClearAutomaticTilePermit(permit);
-                if (_navigationGeneration == permit.Generation && _activePage == BrowserPage.Login)
-                    StatusText.Text = "De tegel kon niet automatisch worden geopend. Klik één keer op Remote Drive op het UGREENlink-bureaublad.";
+                if (!_exitRequested && _navigationGeneration == generation && _activePage == BrowserPage.Login)
+                    StatusText.Text = "De tegel is niet gevonden. Controleer de tegelnaam bij Optioneel of open de Remote Drive-tegel één keer om hem te onthouden.";
             }
         }
         catch (Exception ex)
         {
-            ClearAutomaticTilePermit(permit);
+            if (permit is not null) ClearAutomaticTilePermit(permit);
             DriveLog.Error("Automatic UGREENlink tile attempt failed: " + ex.GetType().Name);
-            if (_navigationGeneration == permit.Generation && _activePage == BrowserPage.Login)
+            if (!_exitRequested && _navigationGeneration == generation && _activePage == BrowserPage.Login)
                 StatusText.Text = "De tegel kon niet automatisch worden geopend. Klik één keer op Remote Drive op het UGREENlink-bureaublad.";
         }
     }
@@ -1057,16 +1106,28 @@ public partial class MainWindow : Window
         _dokan.RemoveMountPoint(_mountedPoint);
     }
 
-    private void ForgetLoginButton_Click(object sender, RoutedEventArgs e)
+    private async void ForgetLoginButton_Click(object sender, RoutedEventArgs e)
     {
         var answer = WpfMessageBox.Show(this,
-            "Dit verwijdert de lokale WebView2-aanmeldsessie voor UGREEN Remote Drive. Je NAS-bestanden en instellingen blijven staan.",
+            "Dit verwijdert de lokale aanmeldsessie en door deze appbrowser bewaarde inloggegevens. Je NAS-bestanden en app-instellingen blijven staan.",
             "Lokale aanmelding wissen", MessageBoxButton.OKCancel, MessageBoxImage.Question);
         if (answer != MessageBoxResult.OK || Browser.CoreWebView2 is null) return;
-        Browser.CoreWebView2.CookieManager.DeleteAllCookies();
-        Browser.Reload();
-        StatusText.Text = "Lokale UGREENlink-cookies gewist. Meld opnieuw aan om de remote schijf te gebruiken.";
-        DriveLog.Info("Local WebView sign-in cookies cleared by user.");
+        try
+        {
+            _connectAndMountRequested = false;
+            _pendingAutomaticTileOpen = null;
+            await Browser.CoreWebView2.Profile.ClearBrowsingDataAsync(
+                CoreWebView2BrowsingDataKinds.AllSite | CoreWebView2BrowsingDataKinds.PasswordAutosave |
+                CoreWebView2BrowsingDataKinds.GeneralAutofill);
+            Browser.Reload();
+            StatusText.Text = "Lokale aanmelding en bewaarde inloggegevens gewist. Meld opnieuw aan om de remote schijf te gebruiken.";
+            DriveLog.Info("Local browser sign-in/site storage and saved credentials cleared by user.");
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "De lokale aanmelding kon niet volledig worden gewist. Probeer opnieuw.";
+            DriveLog.Error("Local sign-in cleanup failed: " + ex.GetType().Name);
+        }
     }
 
     private async Task RefreshStatusAsync()
@@ -1168,16 +1229,28 @@ public partial class MainWindow : Window
             _ = TechbaseSharePath.ValidateUncRoot(smbPath);
         var drive = DriveLetterBox.SelectedItem as string;
         if (string.IsNullOrWhiteSpace(drive)) throw new InvalidOperationException("Kies een driveletter.");
+        var tileName = ShortcutTileNameBox.Text.Trim();
+        if (DesktopTileSelection.Validate("", tileName) is null)
+            throw new InvalidOperationException("Vul de exacte NAS-tegelnaam in (maximaal 128 tekens).");
+        var sameShortcut = setupTarget.Kind == UgreenLinkSetupKind.Shortcut &&
+            setupTarget.Address.AbsoluteUri.Equals(_settings.RemoteUrl, StringComparison.OrdinalIgnoreCase);
+        var sameTileName = tileName.Equals(_settings.ShortcutTileName, StringComparison.OrdinalIgnoreCase);
 
         _settings = new DriveSettings
         {
             RemoteUrl = setupTarget.Kind == UgreenLinkSetupKind.Shortcut ? setupTarget.Address.AbsoluteUri : "",
-            NasPortalUrl = setupTarget.Kind == UgreenLinkSetupKind.NasPortal ? setupTarget.Address.AbsoluteUri : "",
+            NasPortalUrl = setupTarget.Kind == UgreenLinkSetupKind.NasPortal ? setupTarget.Address.AbsoluteUri :
+                sameShortcut ? _settings.NasPortalUrl : "",
             SmbPath = smbPath,
             DriveLetter = drive,
-            AutoStart = StartupBox.IsChecked == true
+            AutoStart = StartupBox.IsChecked == true,
+            RememberLogin = RememberLoginBox.IsChecked == true,
+            AutoOpenShortcut = AutoOpenShortcutBox.IsChecked == true,
+            ShortcutTileName = tileName,
+            ShortcutTileId = sameShortcut && sameTileName ? _settings.ShortcutTileId : ""
         };
         SettingsStore.Save(_settings);
+        if (Browser.CoreWebView2 is { } core) core.Profile.IsPasswordAutosaveEnabled = _settings.RememberLogin;
         UpdateStartupRegistration(_settings.AutoStart);
         ConfigureRemote();
         if (navigateToRemote && _settings.AutoStart && !_settings.RemoteUrl.Equals(Browser.Source?.AbsoluteUri, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(_settings.RemoteUrl))
@@ -1257,6 +1330,9 @@ public partial class MainWindow : Window
         StartupBox.IsEnabled = enabled;
         ConnectButton.IsEnabled = enabled;
         ForgetLoginButton.IsEnabled = enabled;
+        RememberLoginBox.IsEnabled = enabled;
+        AutoOpenShortcutBox.IsEnabled = enabled;
+        ShortcutTileNameBox.IsEnabled = enabled;
     }
 
     private static Uri ValidateRemoteUrl(string value) => UgreenLinkAddress.Validate(value);
@@ -1320,6 +1396,7 @@ public partial class MainWindow : Window
         _statusTimer.Stop();
         _trayIcon.Visible = false;
         _trayIcon.Dispose();
+        Browser.Dispose();
         _exitRequested = true;
         Close();
     }

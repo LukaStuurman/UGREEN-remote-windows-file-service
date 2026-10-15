@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory)][string]$PublishDirectory,
     [Parameter(Mandatory)][string]$OutputDirectory,
     [ValidatePattern('^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$')]
-    [string]$Version = '0.3.4-preview.1',
+    [string]$Version = '0.3.5-preview.1',
     [string]$Compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
 )
 
