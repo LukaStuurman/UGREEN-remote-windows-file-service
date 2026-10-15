@@ -21,7 +21,8 @@ internet.
   tiny header does not download a whole megabyte. Identical simultaneous reads
   share a request; different offsets can still run in parallel.
 - Read windows are memory-only, expire after one second and retain at most eight
-  files of at most 1 MiB each. Changes made by another NAS client can therefore
+  files. Since `v0.3.7-preview.1`, each file can hold a current and a next 1 MiB
+  window (up to 16 MiB retained across eight files). Changes made by another NAS client can therefore
   remain visible as old bytes for up to one second. Every local mutation clears
   the windows before and after the request, including failures. Session changes
   isolate windows and an invalid sign-in cannot serve cached bytes. There is no
@@ -34,6 +35,41 @@ internet.
 - SMB availability checks share their pending worker and reuse a recent result
   for five seconds, avoiding extra blocked network lookups. Reconnecting an
   already loaded remote page checks its session without reloading the page.
+
+## Additional Windows improvements in v0.3.7-preview.1
+
+- Binary reads/writes use WebView2 shared buffers rather than base64/JSON text
+  payloads. Upload buffers are read-only to the page; response buffers are writable
+  and sized to the requested byte limit, never more than 4 MiB. Responses stream
+  into the buffer with overflow rejection. Eight concurrent native buffers bound
+  host allocation to 32 MiB; JSON messages carry control/status data only. All
+  existing exact-origin, service-root, authentication and navigation checks still
+  gate buffer sharing and replies. JavaScript releases its view after completion
+  or failure; the host disposes its view on completion, timeout or navigation.
+  Browser fetches abort after 30 seconds. A current WebView2 Runtime is required.
+- Once sequential reads consume half of a full 1 MiB window, the client starts
+  fetching the next window in the background. There is one next window per file
+  and at most two speculative network workers globally. The next demand read
+  waits for/reuses that request instead of starting it afterward. Short/EOF or
+  small/random reads do not start speculation. Results expire after one second;
+  invalidated/evicted windows or changed/invalid sessions discard pending results.
+  Speculative failure does not invent file data or defer a write acknowledgement.
+- Concurrent stat requests for the same normalized path share one loader; so do
+  concurrent directory listings. Unrelated paths and stat/list operations can run
+  independently. The one-second metadata lifetime and child-stat seeding remain;
+  invalidation detaches old flights so a post-mutation lookup starts afresh and an
+  older completion cannot overwrite current metadata. Failures are not cached.
+
+All three changes are client-only and work with the previous NAS API. Unit tests
+check prefetch starting before the current window is consumed, demand reuse,
+worker limits, failure, invalidation, metadata coalescing and byte integrity.
+Browser-helper tests execute the actual transport script with streamed 4 MiB
+fixtures, uploads/acknowledgements, bounds, failures and origin rejection. A
+disposable Windows CI test also exercises actual WebView2 native shared buffers
+in an invisible window with a fresh temporary browser profile and in-memory
+intercepted HTTPS fixtures; it never opens a real NAS. The native browser test is
+skipped locally to avoid opening a browser/profile on the user's machine. These
+tests do not measure real-NAS latency or prove the live UGREENlink proxy behavior.
 
 ## Measured request reduction and limits
 

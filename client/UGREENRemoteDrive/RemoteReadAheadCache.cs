@@ -11,6 +11,7 @@ internal sealed class RemoteReadAheadCache(Func<long>? clock = null)
     private readonly object _gate = new();
     private readonly Dictionary<string, Window> _windows = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<FetchKey, Lazy<byte[]>> _inflight = new();
+    private readonly SemaphoreSlim _prefetchSlots = new(2, 2);
     private readonly Func<long> _clock = clock ?? (() => Environment.TickCount64);
     private long _generation;
 
@@ -27,6 +28,7 @@ internal sealed class RemoteReadAheadCache(Func<long>? clock = null)
             int fetchLength;
             FetchKey key = default;
             Lazy<byte[]>? flight = null;
+            Prefetch? waiting = null;
             lock (window.Gate)
             {
                 if (!IsCurrent(path, window)) continue;
@@ -46,7 +48,11 @@ internal sealed class RemoteReadAheadCache(Func<long>? clock = null)
                     {
                         if (!sessionValid()) throw new DriveDisconnectedException("De remote aanmelding is niet meer geldig.");
                         var count = (int)Math.Min(length, cached.Length - within);
+                        var sequential = window.LastEnd == offset;
                         window.LastEnd = offset + count;
+                        if (sequential && !window.EndOfFile && cached.Length == WindowSize &&
+                            within + count >= WindowSize / 2)
+                            StartPrefetch(path, window, fetch, sessionValid);
                         return cached.AsSpan((int)within, count).ToArray();
                     }
                 }
@@ -55,12 +61,36 @@ internal sealed class RemoteReadAheadCache(Func<long>? clock = null)
                 // read starts read-ahead, avoiding a 1 MiB download for a tiny header.
                 fetchLength = window.LastEnd == offset ? Math.Max(length, WindowSize) : length;
                 fetchLength = (int)Math.Min(fetchLength, long.MaxValue - offset);
-                if (fetchLength <= WindowSize)
+                if (window.Next is { } next && offset >= next.Offset &&
+                    offset - next.Offset + length <= WindowSize)
+                    waiting = next;
+                if (waiting is null && fetchLength <= WindowSize)
                 {
                     key = new FetchKey(path, offset, fetchLength, session, window.Generation);
                     flight = _inflight.GetOrAdd(key, _ => new Lazy<byte[]>(
                         () => fetch(path, offset, fetchLength), LazyThreadSafetyMode.ExecutionAndPublication));
                 }
+            }
+            if (waiting is not null)
+            {
+                var ready = waiting.Work.GetAwaiter().GetResult();
+                if (!sessionValid()) throw new DriveDisconnectedException("De remote aanmelding is gewijzigd tijdens het lezen.");
+                lock (window.Gate)
+                {
+                    if (!IsCurrent(path, window)) continue;
+                    if (ReferenceEquals(window.Next, waiting)) window.Next = null;
+                    if (ready is not null && _clock() < ready.ExpiresAt)
+                    {
+                        window.Offset = waiting.Offset;
+                        window.Data = ready.Data;
+                        window.EndOfFile = ready.Data.Length < WindowSize;
+                        window.ExpiresAt = ready.ExpiresAt;
+                        continue;
+                    }
+                }
+                // Failed/expired speculation is retried only as a normal read.
+                // Return to the lookup so duplicate demand reads still coalesce.
+                continue;
             }
             // Only identical requests share a flight. Different offsets must not
             // wait behind each other: Windows copies can have parallel reads.
@@ -77,6 +107,7 @@ internal sealed class RemoteReadAheadCache(Func<long>? clock = null)
                     {
                         window.Offset = offset;
                         window.Data = data.Length <= WindowSize ? data : null;
+                        window.Next = null;
                         window.EndOfFile = data.Length < fetchLength;
                         window.LastEnd = offset + returned;
                         window.ExpiresAt = _clock() + LifetimeMilliseconds;
@@ -113,6 +144,28 @@ internal sealed class RemoteReadAheadCache(Func<long>? clock = null)
         }
     }
 
+    private void StartPrefetch(string path, Window window, Func<string, long, int, byte[]> fetch,
+        Func<bool> sessionValid)
+    {
+        // Called only while consuming the second half of a full sequential
+        // window. Keep one next window per file and at most two network workers.
+        if (window.Next is not null || window.Offset > long.MaxValue - 2L * WindowSize ||
+            !sessionValid() || !_prefetchSlots.Wait(0)) return;
+        var offset = window.Offset + WindowSize;
+        window.Next = new Prefetch(offset, Task.Run(() =>
+        {
+            try
+            {
+                if (!sessionValid() || !IsCurrent(path, window)) return null;
+                var data = fetch(path, offset, WindowSize);
+                if (data.Length > WindowSize || !sessionValid() || !IsCurrent(path, window)) return null;
+                return new PrefetchedData(data, _clock() + LifetimeMilliseconds);
+            }
+            catch { return null; } // Speculation never reports success for a failed demand read.
+            finally { _prefetchSlots.Release(); }
+        }));
+    }
+
     private Window GetWindow(string path, int session)
     {
         lock (_gate)
@@ -146,7 +199,10 @@ internal sealed class RemoteReadAheadCache(Func<long>? clock = null)
         internal long ExpiresAt;
         internal byte[]? Data;
         internal bool EndOfFile;
+        internal Prefetch? Next;
     }
 
+    private sealed record PrefetchedData(byte[] Data, long ExpiresAt);
+    private sealed record Prefetch(long Offset, Task<PrefetchedData?> Work);
     private readonly record struct FetchKey(string Path, long Offset, int Length, int Session, long Generation);
 }

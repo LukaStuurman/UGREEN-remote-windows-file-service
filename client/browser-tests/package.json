@@ -1,6 +1,6 @@
 {
   "name": "ugreen-remote-drive-browser-tests",
   "private": true,
-  "scripts": { "test": "node --test desktop-automation.test.cjs" },
+  "scripts": { "test": "node --test *.test.cjs" },
   "devDependencies": { "jsdom": "26.1.0" }
 }

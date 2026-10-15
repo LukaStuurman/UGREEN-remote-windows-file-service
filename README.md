@@ -41,6 +41,12 @@ The installer preserves existing settings and the app's WebView2 sign-in profile
 
 ## Updating an existing installation
 
+`v0.3.7-preview.1` adds raw shared-memory binary transfers, bounded asynchronous
+prefetch of the next sequential read window, and shared in-flight metadata
+requests. These three improvements require only the new Windows installer and a
+current Microsoft Edge WebView2 Runtime. They work with the existing NAS API;
+the server transport update from `v0.3.6-preview.1` remains recommended separately.
+
 `v0.3.6-preview.1` reduces remote read requests when opening/copying files and
 avoids repeated connection checks. Install the new Windows setup; for persistent
 server connections also rebuild/recreate the NAS container with

@@ -10,6 +10,14 @@ De eerste implementatie staat op `main` in commit `456fe4d` (`feat: add UGREENli
 
 ## Huidige status — 2026-09-27
 
+### Binaire overdracht, prefetch en metadata — 2026-10-15
+
+- `v0.3.7-preview.1` is een client-update: ruwe gedeelde WebView2-buffers voor reads/writes, begrensde achtergrond-prefetch van het volgende venster en single-flight voor stat/list. Geen NAS-deployment nodig voor deze drie wijzigingen; server-update uit `v0.3.6-preview.1` blijft apart aanbevolen.
+- Exacte origin/root/auth/navigatiecontroles blijven vóór delen en bij replies verplicht. Uploadbuffer read-only, readbuffer maximaal aangevraagde lengte en 4 MiB, maximaal acht native buffers tegelijk. Browser streamt met overflowcontrole en abort na 30 seconden; beide kanten geven hun buffer vrij. Geen base64 voor bestandsblokken. Actuele WebView2 Runtime vereist.
+- Prefetch pas vanaf de helft van een volledig sequentieel 1 MiB-venster, maximaal één volgend venster per bestand en twee achtergrondworkers. Acht bestanden kunnen samen 16 MiB aan huidige/volgende vensters behouden. TTL één seconde; mutaties, sessiewijziging en eviction verwerpen resultaten. Geen uitgestelde writes.
+- Metadata deelt uitsluitend gelijktijdige reads voor hetzelfde genormaliseerde pad/operatie; invalidatie maakt lopende loads los en beschermt de nieuwe cache tegen oude afronding.
+- Native shared-buffer-integratietest uitsluitend op wegwerpbare GitHub Windows-runner: onzichtbare HWND, nieuw tijdelijk profiel, alle fixture-HTTPS-responses in RAM. Geen NAS- of gebruikersprofiel. Lokale unit-/jsdom-tests zijn geen echte NAS-snelheidsmeting.
+
 ### Remote lezen en transport — 2026-10-15
 
 - `v0.3.6-preview.1` voegt adaptief vooruit lezen toe: eerste/willekeurige kleine read blijft klein, een aansluitende read haalt maximaal 1 MiB vooruit. Maximaal acht RAM-vensters van elk 1 MiB, één seconde geldig, geen offline-/schrijfbuffer. Externe wijzigingen kunnen één seconde oude bytes geven. Lokale mutaties wissen vóór en na de aanvraag; sessiegeneratie/authenticatie worden gecontroleerd. Identieke aanvragen delen hun fetch; verschillende offsets blijven parallel.

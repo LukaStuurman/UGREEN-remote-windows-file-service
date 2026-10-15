@@ -6,7 +6,8 @@ using Microsoft.Web.WebView2.Wpf;
 
 namespace UGREENRemoteDrive;
 
-internal sealed record BridgeReply(int Status, bool Ok, string Body, bool Binary, string? Error, bool LoginRedirect = false);
+internal sealed record BridgeReply(int Status, bool Ok, string Body, bool Binary, string? Error,
+    bool LoginRedirect = false, byte[]? Data = null);
 
 internal sealed record RemoteAuthenticationResult(bool Authenticated, int? HttpStatus, bool LoginRedirect, string? FailureClass)
 {
@@ -127,7 +128,9 @@ internal sealed class RemoteBridge
     private readonly WebView2 _view;
     private Uri? _serviceOrigin;
     private sealed record PendingRequest(TaskCompletionSource<BridgeReply> Completion, string Source,
-        int NavigationGeneration, ulong NavigationId, int AuthenticationGeneration);
+        int NavigationGeneration, ulong NavigationId, int AuthenticationGeneration,
+        CoreWebView2SharedBuffer? Buffer, int Capacity, bool BinaryResponse);
+    private readonly SemaphoreSlim _binarySlots = new(8, 8);
     private readonly ConcurrentDictionary<string, PendingRequest> _pending = new();
     private readonly RemoteAuthenticationState _authenticationState = new();
     private bool _initialized;
@@ -190,56 +193,10 @@ internal sealed class RemoteBridge
     {
         if (_initialized) return;
         await _view.EnsureCoreWebView2Async();
-        const string script = """
-            (() => {
-              if (window.top !== window || !window.chrome?.webview) return;
-              window.chrome.webview.addEventListener('message', async event => {
-                const request = event.data;
-                if (!request || !request.id || window.top !== window) return;
-                try {
-                  const target = new URL(request.url, location.href);
-                  if (target.origin !== location.origin) throw new Error('The active page is not the configured UGREENlink app.');
-                  const headers = { 'X-UGREEN-Remote-Drive': '1' };
-                  let body = undefined;
-                  if (request.body !== null) {
-                    if (request.bodyKind === 'binary') {
-                      const raw = atob(request.body);
-                      const bytes = new Uint8Array(raw.length);
-                      for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-                      body = bytes;
-                    } else {
-                      headers['Content-Type'] = 'application/json';
-                      body = request.body;
-                    }
-                  }
-                  const response = await fetch(target.href, {
-                    method: request.method,
-                    headers,
-                    body,
-                    credentials: 'include',
-                    cache: 'no-store',
-                    redirect: 'manual'
-                  });
-                  if (response.type === 'opaqueredirect') {
-                    window.chrome.webview.postMessage({ id: request.id, status: 0, ok: false, body: '', binary: false, error: 'UGREENlink login redirect', loginRedirect: true });
-                    return;
-                  }
-                  if (request.responseKind === 'binary') {
-                    const bytes = new Uint8Array(await response.arrayBuffer());
-                    let raw = '';
-                    for (let i = 0; i < bytes.length; i += 0x8000) {
-                      raw += String.fromCharCode(...bytes.subarray(i, Math.min(i + 0x8000, bytes.length)));
-                    }
-                    window.chrome.webview.postMessage({ id: request.id, status: response.status, ok: response.ok, body: btoa(raw), binary: true });
-                  } else {
-                    window.chrome.webview.postMessage({ id: request.id, status: response.status, ok: response.ok, body: await response.text(), binary: false });
-                  }
-                } catch (error) {
-                  window.chrome.webview.postMessage({ id: request.id, status: 0, ok: false, body: '', binary: false, error: String(error?.message || error) });
-                }
-              });
-            })();
-            """;
+        using var resource = typeof(RemoteBridge).Assembly.GetManifestResourceStream(
+            "UGREENRemoteDrive.Browser.RemoteTransport.js")!;
+        using var reader = new StreamReader(resource);
+        var script = reader.ReadToEnd();
         await _view.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
         _view.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
         _view.CoreWebView2.NavigationStarting += OnNavigationStarting;
@@ -254,6 +211,9 @@ internal sealed class RemoteBridge
             throw new DriveDisconnectedException("De UGREENlink-browser is nog niet gereed.");
 
         var target = new Uri(url);
+        var usesBuffer = binaryBody is not null || binaryResponse;
+        var readLength = binaryResponse ? System.Web.HttpUtility.ParseQueryString(target.Query)["length"] : null;
+        var capacity = usesBuffer ? BinaryTransfer.Capacity(readLength, binaryBody?.Length, binaryResponse) : 0;
         if (authenticationProbe &&
             (!IsRootStatAuthenticationProbe(method, target) || jsonBody is not null || binaryBody is not null || binaryResponse))
             throw new DriveDisconnectedException("Alleen de root-stat-aanmeldcontrole mag vóór authenticatie worden uitgevoerd.");
@@ -265,14 +225,23 @@ internal sealed class RemoteBridge
             id,
             method,
             url,
-            body = binaryBody is not null ? Convert.ToBase64String(binaryBody) : jsonBody,
-            bodyKind = binaryBody is not null ? "binary" : "json",
-            responseKind = binaryResponse ? "binary" : "json"
+            body = jsonBody,
+            bodyKind = binaryBody is not null ? "shared" : "json",
+            bodyLength = binaryBody?.Length ?? 0,
+            responseKind = binaryResponse ? "shared" : "json"
         };
         var sendAuthenticationGeneration = _authenticationState.CaptureGeneration();
+        CoreWebView2SharedBuffer? shared = null;
+        var ownsSlot = false;
 
         try
         {
+            if (usesBuffer)
+            {
+                if (!_binarySlots.Wait(TimeSpan.FromSeconds(35)))
+                    throw new DriveDisconnectedException("De bestandsoverdracht is nog bezig. Probeer het opnieuw.");
+                ownsSlot = true;
+            }
             var json = JsonSerializer.Serialize(request);
             InvokeOnUiThread(() =>
             {
@@ -293,11 +262,23 @@ internal sealed class RemoteBridge
                 if (!IsAllowedOrigin(target, serviceOrigin) || !IsAllowedOrigin(current, serviceOrigin))
                     throw new DriveDisconnectedException("De actieve pagina komt niet overeen met de ingestelde UGREENlink-shortcut.");
 
+                if (usesBuffer)
+                {
+                    shared = core.Environment.CreateSharedBuffer((ulong)capacity);
+                    if (binaryBody is not null)
+                    {
+                        using var stream = shared.OpenStream();
+                        stream.Write(binaryBody);
+                    }
+                }
                 var pending = new PendingRequest(completion, currentSource, _navigationGeneration, _activeNavigationId,
-                    _authenticationState.CaptureGeneration());
+                    _authenticationState.CaptureGeneration(), shared, capacity, binaryResponse);
                 if (!_pending.TryAdd(id, pending))
                     throw new DriveDisconnectedException("Het API-verzoek kon niet worden gestart.");
-                core.PostWebMessageAsJson(json);
+                if (shared is not null)
+                    core.PostSharedBufferToScript(shared, binaryResponse
+                        ? CoreWebView2SharedBufferAccess.ReadWrite : CoreWebView2SharedBufferAccess.ReadOnly, json);
+                else core.PostWebMessageAsJson(json);
                 return true;
             });
             return completion.Task.WaitAsync(TimeSpan.FromSeconds(35)).GetAwaiter().GetResult();
@@ -307,6 +288,10 @@ internal sealed class RemoteBridge
             _authenticationState.TrySetResult(sendAuthenticationGeneration, false);
             throw new DriveDisconnectedException("UGREENlink reageert niet. Controleer de verbinding en probeer het opnieuw.");
         }
+        catch (NotImplementedException ex)
+        {
+            throw new DriveDisconnectedException("Werk Microsoft Edge WebView2 Runtime bij voor de snelle bestandsoverdracht.", ex);
+        }
         catch (Exception ex) when (ex is not DriveDisconnectedException)
         {
             _authenticationState.TrySetResult(sendAuthenticationGeneration, false);
@@ -315,6 +300,15 @@ internal sealed class RemoteBridge
         finally
         {
             _pending.TryRemove(id, out _);
+            try
+            {
+                if (shared is not null)
+                {
+                    try { InvokeOnUiThread(() => { shared.Dispose(); return true; }); }
+                    catch (Exception) when (_view.Dispatcher.HasShutdownStarted) { }
+                }
+            }
+            finally { if (ownsSlot) _binarySlots.Release(); }
         }
     }
 
@@ -515,6 +509,7 @@ internal sealed class RemoteBridge
 
     private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
+        PendingRequest? matched = null;
         try
         {
             var core = _view.CoreWebView2;
@@ -536,6 +531,7 @@ internal sealed class RemoteBridge
                 pending.Completion.TrySetException(new DriveDisconnectedException("Een verouderd browserantwoord is genegeerd."));
                 return;
             }
+            matched = pending;
             var reply = new BridgeReply(
                 root.TryGetProperty("status", out var status) ? status.GetInt32() : 0,
                 root.TryGetProperty("ok", out var ok) && ok.GetBoolean(),
@@ -543,12 +539,25 @@ internal sealed class RemoteBridge
                 root.TryGetProperty("binary", out var binary) && binary.GetBoolean(),
                 root.TryGetProperty("error", out var error) ? error.GetString() : null,
                 root.TryGetProperty("loginRedirect", out var loginRedirect) && loginRedirect.GetBoolean());
+            if (reply.Binary)
+            {
+                if (!pending.BinaryResponse || pending.Buffer is null || !reply.Ok ||
+                    !root.TryGetProperty("length", out var length) || !length.TryGetInt32(out var count))
+                    throw new IOException("Ongeldig binair browserantwoord.");
+                using var stream = pending.Buffer.OpenStream();
+                reply = reply with { Data = BinaryTransfer.Read(stream, count, pending.Capacity) };
+            }
+            else if (reply.Ok && pending.BinaryResponse)
+                throw new IOException("Het binaire browserantwoord ontbreekt.");
             if (reply.LoginRedirect || reply.Status is 401 or 403)
                 _authenticationState.TrySetResult(pending.AuthenticationGeneration, false);
             pending.Completion.TrySetResult(reply);
         }
         catch (Exception ex)
         {
+            // A malformed matching reply must fail immediately, not hold a
+            // native shared buffer and a Dokany callback until the timeout.
+            matched?.Completion.TrySetException(new DriveDisconnectedException("Ongeldig browserantwoord.", ex));
             DriveLog.Error("Browser bridge message could not be processed: " + ex.GetType().Name);
         }
     }

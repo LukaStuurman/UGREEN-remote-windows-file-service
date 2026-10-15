@@ -70,7 +70,7 @@ internal sealed class RemoteBackend(RemoteBridge bridge) : IFileBackend
             ["path"] = Normalize(path), ["offset"] = offset.ToString(), ["length"] = length.ToString()
         }), binaryResponse: true);
         EnsureSuccess(reply);
-        return Convert.FromBase64String(reply.Body);
+        return reply.Data ?? throw new IOException("Het binaire browserantwoord ontbreekt.");
     }
 
     public int Write(string path, long offset, byte[] data)

@@ -7,6 +7,125 @@ namespace UGREENRemoteDrive.Tests;
 public sealed class RemoteReadAheadCacheTests
 {
     [TestMethod]
+    public void FailedSpeculationIsRetriedByDemandWithoutReturningInventedBytes()
+    {
+        var cache = new RemoteReadAheadCache(() => 10);
+        const int block = 64 * 1024;
+        var speculativeCalls = 0;
+        byte[] Fetch(string path, long offset, int length)
+        {
+            if (offset > RemoteReadAheadCache.WindowSize && Interlocked.Increment(ref speculativeCalls) == 1)
+                throw new IOException("Fixture read failed.");
+            return Enumerable.Repeat((byte)7, length).ToArray();
+        }
+        for (var offset = 0; offset <= 8 * block; offset += block)
+            cache.Read("fixture", offset, block, 1, Fetch, () => true);
+        var result = cache.Read("fixture", block + RemoteReadAheadCache.WindowSize, 1, 1, Fetch, () => true);
+        Assert.AreEqual((byte)7, result[0]);
+        Assert.AreEqual(2, speculativeCalls);
+    }
+
+    [TestMethod]
+    public void OnlyTwoSpeculativeNetworkReadsCanRunAtOnce()
+    {
+        var cache = new RemoteReadAheadCache(() => 10);
+        const int block = 64 * 1024;
+        using var started = new CountdownEvent(2);
+        using var release = new ManualResetEventSlim();
+        var workers = 0;
+        byte[] Fetch(string path, long offset, int length)
+        {
+            if (offset > RemoteReadAheadCache.WindowSize)
+            {
+                Interlocked.Increment(ref workers);
+                started.Signal();
+                if (!release.Wait(TimeSpan.FromSeconds(5))) throw new TimeoutException();
+            }
+            return new byte[length];
+        }
+        try
+        {
+            for (var file = 0; file < 3; file++)
+                for (var offset = 0; offset <= 8 * block; offset += block)
+                    cache.Read("fixture" + file, offset, block, 1, Fetch, () => true);
+            Assert.IsTrue(started.Wait(TimeSpan.FromSeconds(3)));
+            Assert.AreEqual(2, workers);
+        }
+        finally { cache.Invalidate(); release.Set(); }
+    }
+
+    [TestMethod]
+    public async Task NextWindowStartsBeforeTheCurrentWindowIsConsumedAndDemandSharesIt()
+    {
+        var cache = new RemoteReadAheadCache(() => 10);
+        const int block = 64 * 1024;
+        var source = Enumerable.Range(0, 3 * 1024 * 1024).Select(i => (byte)(i % 251)).ToArray();
+        using var started = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var calls = 0;
+        byte[] Fetch(string path, long offset, int length)
+        {
+            Interlocked.Increment(ref calls);
+            if (offset == block + RemoteReadAheadCache.WindowSize)
+            {
+                started.Set();
+                if (!release.Wait(TimeSpan.FromSeconds(5))) throw new TimeoutException();
+            }
+            return source.AsSpan((int)offset, Math.Min(length, source.Length - (int)offset)).ToArray();
+        }
+        try
+        {
+            for (var offset = 0; offset <= 8 * block; offset += block)
+                CollectionAssert.AreEqual(source.AsSpan(offset, block).ToArray(),
+                    cache.Read("fixture", offset, block, 1, Fetch, () => true));
+            Assert.IsTrue(started.Wait(TimeSpan.FromSeconds(3)), "Next window must start while half of this window remains.");
+            Assert.AreEqual(3, calls);
+            var nextOffset = block + RemoteReadAheadCache.WindowSize;
+            var demand = Task.Run(() => cache.Read("fixture", nextOffset, block, 1, Fetch, () => true));
+            release.Set();
+            CollectionAssert.AreEqual(source.AsSpan(nextOffset, block).ToArray(), await demand);
+            Assert.AreEqual(3, calls, "The next read must reuse the speculative request.");
+        }
+        finally { release.Set(); }
+    }
+
+    [TestMethod]
+    public async Task InvalidatedPrefetchCannotSupplyOldBytesToANewRead()
+    {
+        var cache = new RemoteReadAheadCache(() => 10);
+        const int block = 64 * 1024;
+        using var started = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        using var finished = new ManualResetEventSlim();
+        byte[] Fetch(string path, long offset, int length)
+        {
+            if (offset > RemoteReadAheadCache.WindowSize)
+            {
+                started.Set();
+                if (!release.Wait(TimeSpan.FromSeconds(5))) throw new TimeoutException();
+                finished.Set();
+            }
+            return Enumerable.Repeat((byte)1, length).ToArray();
+        }
+        try
+        {
+            for (var offset = 0; offset <= 8 * block; offset += block)
+                cache.Read("fixture", offset, block, 1, Fetch, () => true);
+            Assert.IsTrue(started.Wait(TimeSpan.FromSeconds(3)));
+            cache.Invalidate();
+            var fresh = cache.Read("fixture", block + RemoteReadAheadCache.WindowSize, 1, 1,
+                (_, _, _) => [2], () => true);
+            Assert.AreEqual((byte)2, fresh[0]);
+            release.Set();
+            Assert.IsTrue(finished.Wait(TimeSpan.FromSeconds(3)));
+            Assert.AreEqual((byte)2, cache.Read("fixture", block + RemoteReadAheadCache.WindowSize, 1, 1,
+                (_, _, _) => throw new AssertFailedException(), () => true)[0]);
+            await Task.CompletedTask;
+        }
+        finally { release.Set(); }
+    }
+
+    [TestMethod]
     public void SequentialOneMiBCopyNeedsTwoRequestsInsteadOfSixteen()
     {
         var cache = new RemoteReadAheadCache(() => 10);
