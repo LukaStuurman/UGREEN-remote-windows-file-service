@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 network=ugreen-wireguard-ci
 server=ugreen-wireguard-server-ci
 nas=ugreen-wireguard-nas-ci
@@ -38,7 +39,8 @@ for _ in $(seq 1 40); do
 done
 test "$ready" = 1
 server_address="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$server")"
-docker cp "$server:/config/Techbase-direct.conf" "$temporary/Techbase-direct.conf" >/dev/null
+# docker cp cannot archive this CI tmpfs mount. Keep the profile out of logs.
+docker exec "$server" cat /config/Techbase-direct.conf >"$temporary/Techbase-direct.conf"
 # Fixture-only endpoint; never print or upload the generated profile/private key.
 python3 - "$temporary/Techbase-direct.conf" "$server_address" <<'PY'
 from pathlib import Path
