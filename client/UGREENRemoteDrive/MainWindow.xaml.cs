@@ -28,6 +28,7 @@ public partial class MainWindow : Window
     private RemoteBackend? _remote;
     private BackendSelector? _backends;
     private IFileBackend? _mountedBackend;
+    private string _backendSmbPath = "";
     private Dokan? _dokan;
     private DokanInstance? _dokanInstance;
     private DateTimeOffset _lastRemoteProbe;
@@ -120,6 +121,7 @@ public partial class MainWindow : Window
             // Keep the window visible so a first-time sign-in and shortcut selection can finish.
         }
         RebuildBackends();
+        if (_backends is not null) _ = _backends.ProbeSmbAsync(useRecentResult: true);
         _statusTimer.Start();
         if (!_shortcutDiscoveryActive && Environment.GetCommandLineArgs().Contains("--minimized", StringComparer.OrdinalIgnoreCase)) Hide();
     }
@@ -972,7 +974,7 @@ public partial class MainWindow : Window
         UpdateBackendText();
     }
 
-    private void ConnectButton_Click(object sender, RoutedEventArgs e)
+    private async void ConnectButton_Click(object sender, RoutedEventArgs e)
     {
         try
         {
@@ -1001,7 +1003,11 @@ public partial class MainWindow : Window
             _returningToRoot = false;
             StatusText.Text = "NAS-shortcut openen. Meld je aan in dit appvenster; Edge-aanmelding wordt niet overgenomen.";
             var root = new Uri(_bridge!.BuildServiceRootUrl());
-            if (Browser.Source is not null && _bridge.IsConfiguredServiceRoot(Browser.Source)) Browser.Reload();
+            if (Browser.Source is not null && _bridge.IsConfiguredServiceRoot(Browser.Source))
+            {
+                StatusText.Text = "Bestaande NAS-verbinding controleren…";
+                await ProbeRemoteAfterNavigationAsync(_navigationGeneration);
+            }
             else Browser.Source = root;
         }
         catch (Exception ex)
@@ -1016,7 +1022,7 @@ public partial class MainWindow : Window
         if (_dokanInstance is not null) return;
         RebuildBackends();
         if (_backends is null) throw new InvalidOperationException("Controleer het UGREENlink-adres.");
-        await _backends.ProbeSmbAsync();
+        await _backends.ProbeSmbAsync(useRecentResult: true);
         if (!_backends.SmbReachable && _remote?.IsAuthenticated != true)
             throw new InvalidOperationException("De NAS is nog niet verbonden. Meld aan bij UGREENlink en probeer opnieuw.");
 
@@ -1065,7 +1071,7 @@ public partial class MainWindow : Window
     private async Task<bool> TryMountFromSmbAsync()
     {
         if (!_connectAndMountRequested || _backends is null || string.IsNullOrWhiteSpace(_settings.SmbPath)) return false;
-        await _backends.ProbeSmbAsync();
+        await _backends.ProbeSmbAsync(useRecentResult: true);
         if (!_backends.SmbReachable) return false;
         try
         {
@@ -1133,7 +1139,7 @@ public partial class MainWindow : Window
     private async Task RefreshStatusAsync()
     {
         if (_backends is not null)
-            await _backends.ProbeSmbAsync();
+            _ = _backends.ProbeSmbAsync(useRecentResult: true);
 
         if (RemoteProbePolicy.CanProbe(_activePage == BrowserPage.ServiceRoot, _loginFlowActive,
                 _ticketBootstrapCleanupRequired, _ticketBootstrapCleanupInProgress, _probeInProgress) &&
@@ -1313,8 +1319,11 @@ public partial class MainWindow : Window
     {
         if (_remote is null && _bridge is not null && !string.IsNullOrWhiteSpace(_settings.RemoteUrl)) _remote = new RemoteBackend(_bridge);
         if (_remote is null) return;
+        if (_backends is not null && ReferenceEquals(_backends.Remote, _remote) &&
+            string.Equals(_backendSmbPath, _settings.SmbPath, StringComparison.OrdinalIgnoreCase)) return;
         var smb = string.IsNullOrWhiteSpace(_settings.SmbPath) ? null : new SmbBackend(_settings.SmbPath);
         _backends = new BackendSelector(_remote, smb);
+        _backendSmbPath = _settings.SmbPath;
     }
 
     private void UpdateBackendText()

@@ -10,6 +10,13 @@ De eerste implementatie staat op `main` in commit `456fe4d` (`feat: add UGREENli
 
 ## Huidige status — 2026-09-27
 
+### Remote lezen en transport — 2026-10-15
+
+- `v0.3.6-preview.1` voegt adaptief vooruit lezen toe: eerste/willekeurige kleine read blijft klein, een aansluitende read haalt maximaal 1 MiB vooruit. Maximaal acht RAM-vensters van elk 1 MiB, één seconde geldig, geen offline-/schrijfbuffer. Externe wijzigingen kunnen één seconde oude bytes geven. Lokale mutaties wissen vóór en na de aanvraag; sessiegeneratie/authenticatie worden gecontroleerd. Identieke aanvragen delen hun fetch; verschillende offsets blijven parallel.
+- SMB-probes delen een lopende worker en kunnen een resultaat vijf seconden hergebruiken. De backendselector blijft behouden bij gelijke instellingen. Connect op de reeds geladen root valideert de sessie zonder reload.
+- Serverversie `0.3.0` ondersteunt HTTP/1.1, correcte Content-Length, 30 seconden idle-timeout en TCP_NODELAY. Foutantwoorden sluiten de verbinding; ambigue of onverwachte bodies worden geweigerd. `O_BINARY` houdt Windows-tests bytegetrouw. Dit serverdeel vereist image-rebuild/containerupdate op de NAS; die is voor deze release niet uitgevoerd.
+- Deterministische clienttest: 1 MiB in zestien blokken van 64 KiB gebruikt twee fetches met bytevergelijking. Servertests controleren acht reads en drie bevestigde writes op telkens één TCP-verbinding. Dit bewijst geen echte NAS-snelheid, proxy-keepalive of millisecondenlatency. Zie `docs/performance.md`.
+
 ### Aanmelding en tegelactivatie — 2026-10-15
 
 - `v0.3.5-preview.1` gebruikt het bestaande vaste WebView2-profiel, zet op gebruikerskeuze de native wachtwoordmanager aan en selecteert de bestaande UGOS-optie ingelogd blijven. Clientcode leest geen wachtwoorden, browser-passworddatabase, cookies of opslagtokens. Een native browserbewaarvraag blijft gebruikerskeuze; er komen geen credentials in config/logs. De NAS kan de sessie nog verlopen/intrekken of MFA vereisen.

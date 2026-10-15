@@ -41,6 +41,12 @@ The installer preserves existing settings and the app's WebView2 sign-in profile
 
 ## Updating an existing installation
 
+`v0.3.6-preview.1` reduces remote read requests when opening/copying files and
+avoids repeated connection checks. Install the new Windows setup; for persistent
+server connections also rebuild/recreate the NAS container with
+`UGREEN_DRIVE_REF=v0.3.6-preview.1`. A restart of an old image is insufficient.
+See [performance, measured request counts and cache behavior](docs/performance.md).
+
 Deploy the matching release of `docker-compose.ugreen.yaml` and set `UGREEN_DRIVE_REF` to that release tag, then install the matching Windows release. The new Compose file no longer passes `UGREEN_DRIVE_TOKEN`; remove the old variable from the project's environment settings if the UGREEN UI retains unused entries. Keep `DATA_PATH`, `PUID`, `PGID`, the Techbase-only bind mount, and the existing UGREENlink shortcut port unchanged. The new app ignores a legacy encrypted token in its local configuration and removes that obsolete field the next time settings are saved.
 
 ## GitHub checks and releases
@@ -67,7 +73,9 @@ Directory listing and metadata, read, create, write by byte range or append, tru
 The NAS service uses Python's standard library:
 
 ```powershell
-python -m unittest discover -s server/tests -v
+Push-Location server
+python -m unittest discover -s tests -v
+Pop-Location
 ```
 
 Build the Windows client with the .NET 8 SDK:

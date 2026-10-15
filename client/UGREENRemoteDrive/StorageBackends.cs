@@ -39,6 +39,7 @@ internal static class TechbaseSharePath
 
 internal sealed class RemoteBackend(RemoteBridge bridge) : IFileBackend
 {
+    private readonly RemoteReadAheadCache _reads = new();
     public bool IsAuthenticated => bridge.IsAuthenticated;
 
     public bool Authenticate() => bridge.TryAuthenticate();
@@ -48,6 +49,21 @@ internal sealed class RemoteBackend(RemoteBridge bridge) : IFileBackend
     public IReadOnlyList<FileEntry> List(string path) => Deserialize<List<FileEntry>>(Send("GET", "list", Query(path)));
 
     public byte[] Read(string path, long offset, int length)
+    {
+        var session = bridge.SessionGeneration;
+        try
+        {
+            return _reads.Read(Normalize(path), offset, length, session, ReadDirect,
+                () => bridge.IsAuthenticated && bridge.SessionGeneration == session);
+        }
+        catch
+        {
+            _reads.Invalidate();
+            throw;
+        }
+    }
+
+    private byte[] ReadDirect(string path, long offset, int length)
     {
         var reply = bridge.Send("GET", bridge.BuildApiUrl("read", new Dictionary<string, string>
         {
@@ -59,37 +75,44 @@ internal sealed class RemoteBackend(RemoteBridge bridge) : IFileBackend
 
     public int Write(string path, long offset, byte[] data)
     {
-        var reply = bridge.Send("PUT", bridge.BuildApiUrl("write", new Dictionary<string, string>
+        var reply = Mutate(() => bridge.Send("PUT", bridge.BuildApiUrl("write", new Dictionary<string, string>
         {
             ["path"] = Normalize(path), ["offset"] = offset.ToString()
-        }), binaryBody: data);
+        }), binaryBody: data));
         EnsureSuccess(reply);
         using var document = JsonDocument.Parse(reply.Body);
         return document.RootElement.GetProperty("written").GetInt32();
     }
 
-    public void CreateFile(string path) => EnsureSuccess(bridge.Send("POST", bridge.BuildApiUrl("create", Query(path))));
-    public void CreateDirectory(string path) => EnsureSuccess(bridge.Send("POST", bridge.BuildApiUrl("mkdir", Query(path))));
-    public void Resize(string path, long length) => EnsureSuccess(bridge.Send("POST", bridge.BuildApiUrl("resize", new Dictionary<string, string>
+    public void CreateFile(string path) => EnsureSuccess(Mutate(() => bridge.Send("POST", bridge.BuildApiUrl("create", Query(path)))));
+    public void CreateDirectory(string path) => EnsureSuccess(Mutate(() => bridge.Send("POST", bridge.BuildApiUrl("mkdir", Query(path)))));
+    public void Resize(string path, long length) => EnsureSuccess(Mutate(() => bridge.Send("POST", bridge.BuildApiUrl("resize", new Dictionary<string, string>
     {
         ["path"] = Normalize(path), ["size"] = length.ToString()
-    })));
+    }))));
 
     public void Rename(string source, string target, bool replace)
     {
         var body = JsonSerializer.Serialize(new { source = Normalize(source), target = Normalize(target), replace });
-        EnsureSuccess(bridge.Send("POST", bridge.BuildApiUrl("rename"), jsonBody: body));
+        EnsureSuccess(Mutate(() => bridge.Send("POST", bridge.BuildApiUrl("rename"), jsonBody: body)));
     }
 
-    public void Delete(string path, bool directory) => EnsureSuccess(bridge.Send("DELETE", bridge.BuildApiUrl(directory ? "directory" : "file", Query(path))));
+    public void Delete(string path, bool directory) => EnsureSuccess(Mutate(() => bridge.Send("DELETE", bridge.BuildApiUrl(directory ? "directory" : "file", Query(path)))));
 
     public void SetModifiedTime(string path, DateTimeOffset modifiedUtc)
     {
         var body = JsonSerializer.Serialize(new { path = Normalize(path), modifiedUtcEpoch = modifiedUtc.ToUnixTimeMilliseconds() / 1000d });
-        EnsureSuccess(bridge.Send("POST", bridge.BuildApiUrl("times"), jsonBody: body));
+        EnsureSuccess(Mutate(() => bridge.Send("POST", bridge.BuildApiUrl("times"), jsonBody: body)));
     }
 
     public DiskSpace GetSpace() => Deserialize<DiskSpace>(Send("GET", "space"));
+
+    private T Mutate<T>(Func<T> operation)
+    {
+        _reads.Invalidate();
+        try { return operation(); }
+        finally { _reads.Invalidate(); }
+    }
 
     private string Send(string method, string route, IReadOnlyDictionary<string, string>? query = null)
     {
@@ -305,7 +328,10 @@ internal sealed class BackendSelector
     private readonly Func<bool> _smbAvailabilityProbe;
     private IFileBackend? _mountedBackend;
     private int _smbReachable;
-    private int _smbProbeInProgress;
+    private readonly object _smbProbeGate = new();
+    private Task<bool>? _smbProbe;
+    private bool _hasSmbProbeResult;
+    private long _lastSmbProbe;
 
     public BackendSelector(RemoteBackend remote, SmbBackend? smb)
         : this(remote, smb, () => remote.IsAuthenticated, () => smb?.CanReach() ?? false) { }
@@ -359,26 +385,39 @@ internal sealed class BackendSelector
     public string Describe(IFileBackend backend) =>
         ReferenceEquals(backend, Smb) ? "LAN-SMB" : ReferenceEquals(backend, Remote) ? "UGREENlink" : "onbekend";
 
-    public async Task ProbeSmbAsync()
+    public async Task ProbeSmbAsync(bool useRecentResult = false)
     {
         if (Smb is null)
         {
             Volatile.Write(ref _smbReachable, 0);
             return;
         }
-        if (Interlocked.CompareExchange(ref _smbProbeInProgress, 1, 0) != 0) return;
+        Task<bool> probe;
+        lock (_smbProbeGate)
+        {
+            if (useRecentResult && _hasSmbProbeResult && Environment.TickCount64 - _lastSmbProbe < 5000) return;
+            // A timed-out UNC lookup may still be running in Windows. Reuse it
+            // instead of starting another blocked worker on each timer tick.
+            if (_smbProbe is null || _smbProbe.IsCompleted) _smbProbe = Task.Run(_smbAvailabilityProbe);
+            probe = _smbProbe;
+        }
+        var reachable = false;
         try
         {
-            var reachable = await Task.Run(_smbAvailabilityProbe).WaitAsync(TimeSpan.FromSeconds(2));
-            Volatile.Write(ref _smbReachable, reachable ? 1 : 0);
+            reachable = await probe.WaitAsync(TimeSpan.FromSeconds(2));
         }
-        catch
-        {
-            Volatile.Write(ref _smbReachable, 0);
-        }
+        catch { }
         finally
         {
-            Volatile.Write(ref _smbProbeInProgress, 0);
+            lock (_smbProbeGate)
+            {
+                if (ReferenceEquals(_smbProbe, probe))
+                {
+                    Volatile.Write(ref _smbReachable, reachable ? 1 : 0);
+                    _hasSmbProbeResult = true;
+                    _lastSmbProbe = Environment.TickCount64;
+                }
+            }
         }
     }
 

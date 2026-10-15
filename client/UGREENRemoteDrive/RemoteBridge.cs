@@ -140,10 +140,13 @@ internal sealed class RemoteBridge
     }
 
     public bool IsAuthenticated => _authenticationState.IsAuthenticated;
+    internal int SessionGeneration => _authenticationState.CaptureGeneration();
 
     public void Configure(Uri serviceOrigin)
     {
-        _serviceOrigin = new Uri(serviceOrigin.GetLeftPart(UriPartial.Authority) + "/");
+        var normalized = new Uri(serviceOrigin.GetLeftPart(UriPartial.Authority) + "/");
+        if (normalized == _serviceOrigin) return;
+        _serviceOrigin = normalized;
         _authenticationState.Invalidate();
     }
 
