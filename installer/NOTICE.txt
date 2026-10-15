@@ -1,0 +1,18 @@
+Deze installer bevat UGREEN Remote Drive, de .NET-runtime en de ongewijzigde
+officiële Dokany 2.3.1.1000-installer. Dokany wordt automatisch geïnstalleerd
+als het ontbreekt. Hiervoor zijn Windows-beheerdersrechten nodig. Een
+vereiste herstart wordt aan het einde gemeld; de app start dan pas daarna.
+
+Dokany is een gedeeld Windows-onderdeel en blijft behouden wanneer je
+UGREEN Remote Drive verwijdert. Je NAS-instellingen en aanmeldprofiel
+blijven eveneens behouden.
+
+Dokany wordt verspreid onder LGPL en MIT. De officiële installer bevat
+de licentieteksten en installeert deze bij de Dokany-bestanden.
+Officiële broncode en licenties van exact de meegeleverde versie:
+https://github.com/dokan-dev/dokany/tree/v2.3.1.1000
+Bronarchief:
+https://github.com/dokan-dev/dokany/archive/refs/tags/v2.3.1.1000.zip
+
+Microsoft Edge WebView2 Runtime moet op Windows aanwezig zijn. Als het
+ontbreekt, installeer de officiële Microsoft Edge WebView2 Runtime.

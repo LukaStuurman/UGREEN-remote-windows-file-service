@@ -8,3 +8,4 @@ __pycache__/
 *.user
 *.suo
 *.log
+installer/output/
