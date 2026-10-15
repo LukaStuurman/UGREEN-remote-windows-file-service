@@ -1,6 +1,6 @@
 # UGREEN Remote Windows File Service
 
-Latest preview: [`v0.3.5-preview.1`](https://github.com/LukaStuurman/UGREEN-remote-windows-file-service/releases/tag/v0.3.5-preview.1). This preview adds remembered sign-in preferences and automatic activation of the actual UGOS desktop tile, including delayed rendering after sign-in. Download **`UGREENRemoteDrive-Setup-win-x64.exe`**, with the official Dokany runtime/driver included. Tests use isolated Windows/browser fixtures; real NAS reconnect and session longevity still need verification.
+Latest preview: [`v0.4.0-preview.1`](https://github.com/LukaStuurman/UGREEN-remote-windows-file-service/releases/tag/v0.4.0-preview.1). Adds an optional direct WireGuard Docker project and SMB-only Windows connections alongside the existing UGREENlink route. Download **`UGREENRemoteDrive-Setup-win-x64.exe`**, with Dokany included. **`UGREENDirectWireGuard-docker.zip`** contains the separate Docker project and instructions; it does not install or configure a router/VPN by itself. Real NAS/router integration remains unverified.
 
 Mount only the UGREEN NAS shared folder named `Techbase` as a fixed Windows drive letter. At home, the client prefers the `Techbase` SMB share. Away from home, it uses a small API container reached through a UGREENlink Docker desktop shortcut (`*.ugapp.link` or `*.ugdocker.link`).
 
@@ -12,6 +12,25 @@ The Windows client opens the shortcut in its own WebView2 window. Sign in with t
 - `client/`: Windows tray/configuration app and Dokany filesystem mount.
 - `docker-compose.yaml`: local/development Compose file.
 - `docker-compose.ugreen.yaml`: UGREEN NAS Docker Project Compose file.
+- `docker-compose.wireguard.yaml` and `direct-wireguard/`: optional direct WireGuard endpoint with an SMB-only proxy to the existing NAS; no NAS folder mounts or cloud relay. See the [Dutch WireGuard installation and router guide](docs/direct-wireguard.md).
+
+## Optional direct connection
+
+For an own direct tunnel, use the separate WireGuard Docker project and the
+official WireGuard Windows client. This needs a reachable public IPv4/DDNS,
+router UDP port forwarding and NAS TUN/NET_ADMIN support. It is not another
+UGREENlink shortcut. The private client profile routes only `10.203.0.1/32`;
+container firewall rules block general LAN/internet forwarding and proxy only
+to the configured NAS TCP 445. NAS SMB account permissions must restrict the
+account to Techbase; the proxy itself cannot filter share names. The Windows
+app additionally rejects any other share root. No public SMB port is opened.
+
+Activate the tunnel and authenticate once in Windows to `\\10.203.0.1\Techbase`.
+In the Remote Drive app set that SMB share under Optional; the UGREENlink field
+can be blank for SMB-only use. A reachable SMB share is mounted immediately,
+without waiting for browser sign-in. See [complete setup, export and external
+handshake checks](docs/direct-wireguard.md). The existing relay container stays
+available separately; an active mount keeps its backend until unmounted.
 
 ## NAS setup
 

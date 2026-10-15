@@ -145,6 +145,8 @@ internal sealed class RemoteBackend(RemoteBridge bridge) : IFileBackend
 internal sealed class SmbBackend(string shareRoot) : IFileBackend
 {
     private readonly string _root = Path.GetFullPath(TechbaseSharePath.ValidateUncRoot(shareRoot));
+    internal string ConnectionName => TechbaseSharePath.ValidateUncRoot(shareRoot)
+        .Equals(@"\\10.203.0.1\Techbase", StringComparison.OrdinalIgnoreCase) ? "WireGuard-SMB" : "LAN-SMB";
 
     public bool CanReach()
     {
@@ -356,7 +358,7 @@ internal sealed class BackendSelector
             var mounted = Volatile.Read(ref _mountedBackend);
             if (mounted is not null) return $"{Describe(mounted)} (gekoppeld)";
             return SmbReachable && Smb is not null
-                ? "LAN-SMB"
+                ? Describe(Smb)
                 : _remoteIsAuthenticated() ? "UGREENlink" : "UGREENlink (aanmelding vereist)";
         }
     }
@@ -383,7 +385,8 @@ internal sealed class BackendSelector
     }
 
     public string Describe(IFileBackend backend) =>
-        ReferenceEquals(backend, Smb) ? "LAN-SMB" : ReferenceEquals(backend, Remote) ? "UGREENlink" : "onbekend";
+        ReferenceEquals(backend, Smb) ? (Smb as SmbBackend)?.ConnectionName ?? "LAN-SMB"
+            : ReferenceEquals(backend, Remote) ? "UGREENlink" : "onbekend";
 
     public async Task ProbeSmbAsync(bool useRecentResult = false)
     {
