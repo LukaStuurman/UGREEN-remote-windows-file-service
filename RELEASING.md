@@ -10,6 +10,8 @@ Do not publish a stable release until the actual NAS path and UGREENlink route h
 - Remote access through the UGREENlink desktop shortcut when outside the LAN.
 - First-time shortcut discovery from `https://ug.link/<ID>` and a subsequent app restart without manually entering the generated Docker shortcut address.
 - On reconnect, verify the one-shot automatic Remote Drive tile attempt on the saved shortcut origin, plus the manual-click fallback when automatic discovery cannot find/open the tile.
+- With **Aanmelding onthouden** enabled, sign in once with UGOS Keep me logged in selected, fully exit/restart the app and restart Windows. Check actual NAS session reuse; server-enforced expiration/MFA must remain effective. Verify saved browser credentials can be cleared.
+- Check the non-anchor desktop tile, delayed SPA rendering after sign-in, renamed learned module ID, and duplicate-name refusal. Verify the actual configured label under **Naam van de NAS-tegel**.
 - If UGREENlink requires a fresh shortcut activation, verify the approved tile result returns to the mount flow without exposing its one-time query in settings or logs.
 - Shortcut access denied to a browser session that is not signed in, and available after signing in.
 - The file API rejects requests without its required client header and works through the signed-in UGREENlink shortcut.

@@ -120,6 +120,12 @@ jobs:
         run: dotnet build client/UGREENRemoteDrive.sln -c Release --no-restore
       - name: Run Windows client tests
         run: dotnet test client/UGREENRemoteDrive.sln -c Release --no-build
+      - name: Install isolated desktop-helper test dependencies
+        working-directory: client/browser-tests
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Test saved-login preference and delayed NAS desktop activation
+        working-directory: client/browser-tests
+        run: npm test
       - name: Publish and package Windows client
         shell: pwsh
         run: |
