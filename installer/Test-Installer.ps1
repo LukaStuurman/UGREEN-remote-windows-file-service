@@ -57,7 +57,7 @@ public static class DokanyInstallerProbe {
 $nativeVersion = [DokanyInstallerProbe]::DokanVersion()
 $driverVersion = [DokanyInstallerProbe]::DokanDriverVersion()
 if ($nativeVersion -lt 230) { throw "The installed native runtime could not load: $nativeVersion" }
-if ($firstResult -eq 0 -and $driverVersion -lt 230) {
+if ($firstResult -eq 0 -and $driverVersion -eq 0) {
     throw "The installed driver could not load: $driverVersion"
 }
 Write-Output "Fresh installation: native=$nativeVersion driver=$driverVersion exit=$firstResult."
