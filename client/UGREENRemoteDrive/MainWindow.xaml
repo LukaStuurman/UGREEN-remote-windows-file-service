@@ -40,16 +40,20 @@
                     <TextBlock Text="Techbase SMB-share (LAN of eigen WireGuard-VPN)" FontWeight="SemiBold" />
                     <TextBox x:Name="SmbPathBox" Height="30" Margin="0,4,0,0" VerticalContentAlignment="Center"
                              ToolTip="Alleen de share-root: \\NASNAAM\Techbase op het LAN, of \\10.203.0.1\Techbase via de directe WireGuard-container." />
+                    <WrapPanel Margin="0,6,0,0">
+                        <Button x:Name="SmbSignInButton" Content="Aanmelden bij NAS" Padding="10,5" Margin="0,0,8,0" Click="SmbSignInButton_Click" />
+                        <Button x:Name="ForgetSmbButton" Content="NAS-aanmelding vergeten" Padding="10,5" Click="ForgetSmbButton_Click" />
+                    </WrapPanel>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Width="88" Margin="0,0,14,0">
                     <TextBlock Text="Schijfletter" FontWeight="SemiBold" />
                     <ComboBox x:Name="DriveLetterBox" Height="30" Margin="0,4,0,0" />
                 </StackPanel>
-                <Button x:Name="ForgetLoginButton" Grid.Column="2" Content="Wis lokale aanmelding"
+                <Button x:Name="ForgetLoginButton" Grid.Column="2" Content="UGREENlink-aanmelding wissen"
                         Padding="10,6" VerticalAlignment="Bottom" Click="ForgetLoginButton_Click" />
             </Grid>
             <WrapPanel Margin="0,10,0,0">
-                <CheckBox x:Name="RememberLoginBox" Content="Aanmelding onthouden" Margin="0,0,18,0" Click="ConnectionPreferencesChanged"
+                <CheckBox x:Name="RememberLoginBox" Content="UGREENlink-aanmelding onthouden" Margin="0,0,18,0" Click="ConnectionPreferencesChanged"
                           ToolTip="Gebruikt de eigen browseropslag en de optie ingelogd blijven van UGREEN. Je kunt eenmalig de browservraag om je wachtwoord te bewaren accepteren." />
                 <CheckBox x:Name="AutoOpenShortcutBox" Content="Automatisch verbinden en Remote Drive-tegel openen" Click="ConnectionPreferencesChanged" />
             </WrapPanel>
@@ -64,6 +68,8 @@
         <WrapPanel Grid.Row="3" Margin="0,0,0,10" VerticalAlignment="Center">
             <Button x:Name="ConnectButton" Content="Verbinden en schijf openen" Padding="16,8" Margin="0,0,10,0"
                     FontWeight="SemiBold" Click="ConnectButton_Click" />
+            <Button x:Name="RemoteConnectButton" Content="UGREENlink openen" Padding="12,8" Margin="0,0,10,0"
+                    Click="RemoteConnectButton_Click" />
             <Button x:Name="UnmountButton" Content="Schijf ontkoppelen" Padding="12,8" Margin="0,0,12,0"
                     Click="UnmountButton_Click" IsEnabled="False" />
             <CheckBox x:Name="StartupBox" Content="Start en koppel automatisch aan bij Windows-aanmelding"
@@ -82,9 +88,18 @@
                     <TextBlock x:Name="BackendText" Text="Backend: geen" DockPanel.Dock="Right" Foreground="#555" Margin="12,0,0,0" />
                 </DockPanel>
             </Border>
-            <Border Grid.Row="1" BorderBrush="#D5DADF" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
-                <wv2:WebView2 x:Name="Browser" />
-            </Border>
+            <Grid Grid.Row="1">
+                <StackPanel x:Name="DirectConnectionPanel" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="550">
+                    <TextBlock Text="Je NAS in Verkenner" FontSize="24" FontWeight="SemiBold" TextAlignment="Center" />
+                    <TextBlock Text="Verbind via je lokale netwerk of je actieve WireGuard-VPN. De app gebruikt je Windows-verbinding of vraagt om je NAS-gebruikersnaam en wachtwoord."
+                               TextWrapping="Wrap" TextAlignment="Center" Foreground="#555" Margin="0,12,0,0" />
+                    <TextBlock Text="Vul je Techbase SMB-share in bij Optioneel en klik op Verbinden. UGREENlink blijft beschikbaar als alternatief en gebruikt het UGREEN-aanmeldscherm."
+                               TextWrapping="Wrap" TextAlignment="Center" Foreground="#555" Margin="0,10,0,0" />
+                </StackPanel>
+                <Border x:Name="BrowserHost" Visibility="Collapsed" BorderBrush="#D5DADF" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
+                    <wv2:WebView2 x:Name="Browser" />
+                </Border>
+            </Grid>
         </Grid>
     </Grid>
 </Window>

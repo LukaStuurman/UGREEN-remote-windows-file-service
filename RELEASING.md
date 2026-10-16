@@ -17,6 +17,7 @@ Do not publish a stable release until the actual NAS path and UGREENlink route h
 - The file API rejects requests without its required client header and works through the signed-in UGREENlink shortcut.
 - Listing, read, create, write, resize, rename, delete, and modification-time behavior.
 - SMB preference on LAN and backend switch/reconnect behavior.
+- Native NAS sign-in with correct/incorrect local UGOS credentials on LAN and an active WireGuard tunnel, account-conflict handling without disconnecting other SMB sessions, optional remember across app/Windows restart, per-address forgetting, and browser fallback for UGREENlink. The CI Credential Manager fixture proves storage interop only, not a real NAS login or WNet server authentication.
 - Confirmation that no other NAS share or parent directory is mounted.
 - Compose has exactly one data bind mount, targets `/data`, refuses to create a missing host path, and both server and Windows client reject non-Techbase share paths.
 - Windows client build, bundled Dokany fresh install/reinstall/uninstall, and WebView2 runtime requirements.
