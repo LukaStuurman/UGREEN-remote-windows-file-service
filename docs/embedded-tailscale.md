@@ -14,10 +14,10 @@ eigen WireGuard-container; voor deze route is geen nieuwe NAS-container nodig.
    deze app. Gebruik voorafgaande apparaatgoedkeuring als het netwerk dat vereist.
    Houd de normale toegangsregels beperkt tot de NAS op TCP 445. De app maakt of
    verruimt zelf geen toegangsregels en schakelt geen Tailnet Lock uit.
-3. Open Remote Drive, klap **Optioneel** uit en vul onder Tailscale de volledige
+3. Open Remote Drive en vul bij **Verbinding → Veilig onderweg** de volledige
    NAS-naam eindigend op `.ts.net` of het Tailscale IPv4-adres in. Geen `https://`,
    poort of sharepad. Het NAS-adres is persoonlijke configuratie, geen broncode.
-4. Kies **Verbinden via ingebouwde Tailscale**. Vul de auth key alleen in het
+4. Kies **Via Tailscale verbinden**. Vul de auth key alleen in het
    afgeschermde eenmalige instelvenster in. Deel deze niet via chat, Git of logs.
    De app opent geen Tailscale-inlogpagina. Zonder een bestaande eigen identiteit
    of een geldige sleutel kan een nieuwe app geen toegang tot een privétailnet krijgen.
@@ -32,7 +32,7 @@ eigen WireGuard-container; voor deze route is geen nieuwe NAS-container nodig.
 Na herstart hergebruikt deze app zijn eigen identiteit. Eenmalige toestemming is
 dus nog steeds nodig; opnieuw inloggen bij Tailscale per verbinding niet. Intrekking,
 node-keyverloop, apparaatgoedkeuring of Tailnet Lock kan nieuwe beheerderactie vereisen.
-**Tailscale-toestemming wissen** meldt uitsluitend de ingebouwde node af. De losse
+**Instellingen → Tailscale-toestemming wissen** meldt uitsluitend de ingebouwde node af. De losse
 Windows-client en de NAS-node worden niet uitgelezen, afgemeld of gewijzigd.
 
 ## Aanmeldvensters

@@ -146,7 +146,7 @@ public partial class MainWindow : Window
         {
             ShowRemoteBrowser(true);
             Browser.Source = new Uri(_bridge!.BuildServiceRootUrl());
-            StatusText.Text = "UGREENlink openen. Meld aan in dit appvenster; Edge-aanmelding wordt niet overgenomen.";
+            StatusText.Text = "UGREENlink openen. Meld aan in het aparte aanmeldvenster; Edge-aanmelding wordt niet overgenomen.";
         }
         else if (TryStartSavedNasPortalDiscovery())
         {
@@ -410,7 +410,7 @@ public partial class MainWindow : Window
             DriveLog.Info("Top-level navigation started: page=recognized-ugreen-login.");
             StatusText.Text = _shortcutDiscoveryActive
                 ? "Meld aan bij de NAS in dit venster en open daarna de Remote Drive-tegel. Het app-adres wordt automatisch opgeslagen."
-                : "Meld aan in dit appvenster. De app probeert daarna de opgeslagen Remote Drive-tegel vanzelf te openen.";
+                : "Meld aan in het aparte aanmeldvenster. De app probeert daarna de opgeslagen Remote Drive-tegel vanzelf te openen.";
             return;
         }
         e.Cancel = true;
@@ -701,7 +701,7 @@ public partial class MainWindow : Window
             {
                 StatusText.Text = _shortcutDiscoveryActive
                     ? "Meld aan bij de NAS in dit venster en open de Remote Drive-tegel. De app vult het shortcut-adres daarna zelf in en onthoudt het."
-                    : "Meld aan in dit appvenster en klik zo nodig op de Remote Drive-tegel op het UGREENlink-bureaublad.";
+                    : "Meld aan in het aparte aanmeldvenster en klik zo nodig op de Remote Drive-tegel op het UGREENlink-bureaublad.";
             }
             return;
         }
@@ -763,7 +763,7 @@ public partial class MainWindow : Window
                 if (!_nativeSignInActive && _mountedBackend is not (SmbBackend or EmbeddedTailscaleBackend)) ShowRemoteBrowser(true);
                 if (!TryStartAutomaticTileOpen())
                     StatusText.Text = navigationSucceeded
-                        ? "Meld aan in dit appvenster en klik zo nodig op de Remote Drive-tegel op het UGREENlink-bureaublad."
+                        ? "Meld aan in het aparte aanmeldvenster en klik zo nodig op de Remote Drive-tegel op het UGREENlink-bureaublad."
                         : "De UGREENlink-aanmeldpagina kon niet worden bevestigd. Klik zo nodig zelf op de Remote Drive-tegel.";
                 return;
             }
@@ -950,7 +950,7 @@ public partial class MainWindow : Window
             {
                 ClearAutomaticTilePermit(permit);
                 if (!_exitRequested && _navigationGeneration == generation && _activePage == BrowserPage.Login)
-                    StatusText.Text = "De tegel is niet gevonden. Controleer de tegelnaam bij Optioneel of open de Remote Drive-tegel één keer om hem te onthouden.";
+                    StatusText.Text = "De tegel is niet gevonden. Controleer de tegelnaam bij Instellingen of open de Remote Drive-tegel één keer om hem te onthouden.";
             }
         }
         catch (Exception ex)
@@ -994,13 +994,13 @@ public partial class MainWindow : Window
                 _healthNavigationAttempted = true;
                 _loginFlowActive = true;
                 _healthResponseStatus = null;
-                StatusText.Text = "UGREENlink-aanmelding openen. Meld je aan in het appvenster; Edge-aanmelding wordt niet overgenomen.";
+                StatusText.Text = "UGREENlink-aanmelding openen. Meld je aan in het aparte aanmeldvenster; Edge-aanmelding wordt niet overgenomen.";
                 Browser.Source = new Uri(_bridge.BuildHealthUrl());
                 return;
             }
             if (result.LoginRedirect) _loginFlowActive = true;
             StatusText.Text = result.LoginRedirect
-                ? "Meld je aan in het appvenster; Edge-aanmelding wordt niet overgenomen. Klik daarna op Verbinden."
+                ? "Meld je aan in het aparte aanmeldvenster; Edge-aanmelding wordt niet overgenomen. Klik daarna op Verbinden."
                 : RemoteAuthenticationFailureText(result, _connectAndMountRequested);
             if (_settings.AutoStart && !IsVisible) Show();
             if (_connectAndMountRequested && !result.LoginRedirect) await TryMountFromSmbAsync();
@@ -1056,7 +1056,7 @@ public partial class MainWindow : Window
             _healthNavigationAttempted = false;
             _loginFlowActive = false;
             _returningToRoot = false;
-            StatusText.Text = "NAS-shortcut openen. Meld je aan in dit appvenster; Edge-aanmelding wordt niet overgenomen.";
+            StatusText.Text = "NAS-shortcut openen. Meld je aan in het aparte aanmeldvenster; Edge-aanmelding wordt niet overgenomen.";
             var root = new Uri(_bridge!.BuildServiceRootUrl());
             if (Browser.Source is not null && _bridge.IsConfiguredServiceRoot(Browser.Source))
             {
@@ -1090,7 +1090,7 @@ public partial class MainWindow : Window
         var letter = (DriveLetterBox.SelectedItem as string ?? _settings.DriveLetter).Trim().TrimEnd('\\');
         var mountPoint = letter + "\\";
         if (DriveInfo.GetDrives().Any(drive => drive.Name.Equals(mountPoint, StringComparison.OrdinalIgnoreCase)))
-            throw new InvalidOperationException($"{letter} is al in gebruik. Kies een andere schijfletter bij Optioneel.");
+            throw new InvalidOperationException($"{letter} is al in gebruik. Kies een andere schijfletter bij Instellingen.");
 
         var logger = new NullLogger();
         _dokan = new Dokan(logger);
@@ -1247,7 +1247,7 @@ public partial class MainWindow : Window
             else if (result.LoginRedirect)
             {
                 _loginFlowActive = true;
-                StatusText.Text = "Meld aan in dit appvenster en open daarna de Remote Drive-tegel op het UGREENlink-bureaublad.";
+                StatusText.Text = "Meld aan in het aparte aanmeldvenster en open daarna de Remote Drive-tegel op het UGREENlink-bureaublad.";
             }
             else if (IsVisible) StatusText.Text = RemoteAuthenticationFailureText(result, _connectAndMountRequested);
         }
@@ -1273,8 +1273,8 @@ public partial class MainWindow : Window
     {
         if (result.LoginRedirect)
             return mountRequested
-                ? "UGREENlink stuurde door naar aanmelden. Meld aan in dit appvenster en open daarna de Remote Drive-tegel; de schijf wordt daarna opnieuw geprobeerd."
-                : "UGREENlink stuurde door naar aanmelden. Meld aan in dit appvenster en open daarna de Remote Drive-tegel.";
+                ? "UGREENlink stuurde door naar aanmelden. Meld aan in het aparte aanmeldvenster en open daarna de Remote Drive-tegel; de schijf wordt daarna opnieuw geprobeerd."
+                : "UGREENlink stuurde door naar aanmelden. Meld aan in het aparte aanmeldvenster en open daarna de Remote Drive-tegel.";
 
         if (result.FailureClass == "InvalidRootStatResponse")
             return "De NAS antwoordde met HTTP 200, maar gaf geen geldige metadata voor de Techbase-root terug; aanmelden is niet bevestigd.";
@@ -1411,7 +1411,7 @@ public partial class MainWindow : Window
 
     private void UpdateBackendText()
     {
-        BackendText.Text = "Backend: " + (_backends?.Mode ?? "geen");
+        BackendText.Text = "Verbinding: " + (_backends?.Mode ?? "geen");
     }
 
     private void ShowRemoteBrowser(bool visible)
@@ -1426,11 +1426,20 @@ public partial class MainWindow : Window
     {
         if (_ugreenLoginWindow is not null) return;
         if (BrowserHost.Parent is System.Windows.Controls.Panel parent) parent.Children.Remove(BrowserHost);
+        var popupContent = new System.Windows.Controls.DockPanel();
+        var header = new System.Windows.Controls.ContentControl
+        {
+            Content = "Remote Drive", ContentTemplate = (DataTemplate)FindResource("PopupBrandHeader")
+        };
+        System.Windows.Controls.DockPanel.SetDock(header, System.Windows.Controls.Dock.Top);
+        popupContent.Children.Add(header);
+        popupContent.Children.Add(BrowserHost);
         _ugreenLoginWindow = new Window
         {
-            Title = "Aanmelden bij UGREENlink", Owner = this, Width = 850, Height = 650,
+            Title = "Techbase | Aanmelden bij UGREENlink", Owner = this, Width = 850, Height = 650,
             MinWidth = 650, MinHeight = 450, WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            ShowInTaskbar = false, Content = BrowserHost
+            ShowInTaskbar = false, Content = popupContent,
+            Style = (Style)FindResource(typeof(Window))
         };
         _ugreenLoginWindow.Closing += (_, e) => { if (!_exitRequested) { e.Cancel = true; _ugreenLoginWindow.Hide(); } };
     }
@@ -1611,7 +1620,7 @@ public partial class MainWindow : Window
         menu.Items.Add("Afsluiten", null, async (_, _) => await ExitFromTrayAsync());
         var icon = new WinForms.NotifyIcon
         {
-            Icon = System.Drawing.SystemIcons.Application,
+            Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? System.Drawing.SystemIcons.Application,
             Text = "UGREEN Remote Drive",
             ContextMenuStrip = menu,
             Visible = true

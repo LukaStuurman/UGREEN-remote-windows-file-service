@@ -11,9 +11,12 @@
     <Prefer32Bit>false</Prefer32Bit>
     <AssemblyName>UGREENRemoteDrive</AssemblyName>
     <RootNamespace>UGREENRemoteDrive</RootNamespace>
+    <ApplicationIcon>Assets\Techbase.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
+    <Resource Include="Assets\TechbaseLogo.png" />
+    <Resource Include="Assets\Techbase.ico" />
     <EmbeddedResource Include="..\..\embedded-tailscale\UGREENTailscale.exe" LogicalName="UGREENRemoteDrive.Embedded.UGREENTailscale.exe" Condition="Exists('..\..\embedded-tailscale\UGREENTailscale.exe')" />
     <EmbeddedResource Include="..\..\embedded-tailscale\THIRD-PARTY-NOTICES.txt" LogicalName="UGREENRemoteDrive.Embedded.NOTICES.txt" Condition="Exists('..\..\embedded-tailscale\THIRD-PARTY-NOTICES.txt')" />
     <EmbeddedResource Include="Browser\DesktopAutomation.js" />

@@ -10,6 +10,11 @@ De eerste implementatie staat op `main` in commit `456fe4d` (`feat: add UGREENli
 
 ## Huidige status — 2026-09-27
 
+### Techbase-vormgeving — 2026-10-16
+
+- `v0.5.1-preview.1` geeft de client een Techbase-kop met door de gebruiker geleverd logo, eigen applicatie-/setupicoon, oranje hoofdactie, verbindingskaarten en aparte tab Instellingen. Native NAS-/Tailscale-popups en de officiële UGREENlink-popup gebruiken dezelfde stijl. Instellingsnamen, stores, verbindingen en beveiligingsregels blijven behouden.
+- Branding staat lokaal ingebed in `client/UGREENRemoteDrive/Assets`; bron en merkrechten staan daar in README.md. Geen runtime-downloads. Layout op normale/kleine vensterbreedte gecontroleerd met een geïsoleerde XAML-render zonder clientcode, profiel, aanmelding of NAS. Dit is geen echte verbindings-/NAS-test.
+
 ### Ingebouwde Tailscale en aanmeldpop-ups — 2026-10-16
 
 - Gebruiker verving de eigen WireGuard-aanpak door zijn bestaande Tailscale op de NAS, vraagt geen aparte Tailscale-app op Windows en geen Tailscale-login. `v0.5.0-preview.1` gebruikt officiële tsnet v1.104.1 in een meegebouwde private Go-component. Eén eenmalige auth key is nodig om de eigen node te autoriseren; geen Tailscale-inlogpagina. Geen sleutel vragen in chat, uitlezen uit bestaande clients of bundelen in Git/releases. Eigen node-state per Windows-gebruiker DPAPI-versleuteld; bestaande Tailscale-service/state blijft onaangeraakt. Geen NAS-/routerwijziging gedaan.
