@@ -39,6 +39,22 @@ internal sealed class DriveFileSystem : IDokanOperations
 
         try
         {
+            if (Backend is IHandleFileBackend handles)
+            {
+                FileEntry? existing = null;
+                try { existing = Backend.Stat(fileName); }
+                catch (DriveApiException ex) when (ex.Status == 404) { }
+                if (isRoot && existing is null) return Finish(DokanResult.PathNotFound);
+                if (info.IsDirectory && existing is { IsDirectory: false }) return Finish(DokanResult.NotADirectory);
+                info.IsDirectory = existing?.IsDirectory ?? info.IsDirectory;
+                if (isRoot && mode is not (FileMode.Open or FileMode.OpenOrCreate)) return Finish(DokanResult.AccessDenied);
+                var handle = handles.OpenFile(fileName, access, share, mode, options, attributes, info.IsDirectory);
+                try { info.IsDirectory = handle.Stat().IsDirectory; }
+                catch { handle.Dispose(); throw; }
+                info.Context = handle;
+                InvalidateMetadata();
+                return Finish(handle.Existed && mode is (FileMode.Create or FileMode.OpenOrCreate) ? DokanResult.AlreadyExists : DokanResult.Success);
+            }
             FileEntry? entry = null;
             try
             {
@@ -120,6 +136,15 @@ internal sealed class DriveFileSystem : IDokanOperations
 
     public void Cleanup(string fileName, IDokanFileInfo info)
     {
+        if (Backend is IHandleFileBackend)
+        {
+            // Keep the file ID alive until CloseFile: cached/paging I/O may
+            // still arrive after Cleanup. Delete by ID, never by reused path.
+            if (info.DeletePending && info.Context is IBackendFileHandle handle)
+                try { handle.Delete(); InvalidateMetadata(); }
+                catch (Exception ex) { DriveLog.Error($"Handle cleanup failed ({ex.GetType().Name})."); }
+            return;
+        }
         if (!info.DeletePending) return;
         try
         {
@@ -129,7 +154,13 @@ internal sealed class DriveFileSystem : IDokanOperations
         catch (Exception ex) { DriveLog.Error($"Cleanup failed ({ex.GetType().Name})."); }
     }
 
-    public void CloseFile(string fileName, IDokanFileInfo info) { }
+    public void CloseFile(string fileName, IDokanFileInfo info)
+    {
+        if (info.Context is not IBackendFileHandle handle) return;
+        try { handle.Dispose(); }
+        catch (Exception ex) { DriveLog.Error($"Handle close failed ({ex.GetType().Name})."); }
+        finally { info.Context = null; }
+    }
 
     public NtStatus ReadFile(string fileName, byte[] buffer, out int bytesRead, long offset, IDokanFileInfo info)
     {
@@ -137,7 +168,9 @@ internal sealed class DriveFileSystem : IDokanOperations
         try
         {
             if (offset < 0) return DokanResult.InvalidParameter;
-            var data = Backend.Read(fileName, offset, Math.Min(buffer.Length, 4 * 1024 * 1024));
+            var data = Backend is IHandleFileBackend
+                ? Handle(info).Read(offset, Math.Min(buffer.Length, 4 * 1024 * 1024))
+                : Backend.Read(fileName, offset, Math.Min(buffer.Length, 4 * 1024 * 1024));
             data.CopyTo(buffer, 0);
             bytesRead = data.Length;
             return DokanResult.Success;
@@ -152,34 +185,49 @@ internal sealed class DriveFileSystem : IDokanOperations
         {
             var actualOffset = offset == -1 || info.WriteToEndOfFile ? -1 : offset;
             if (actualOffset < -1) return DokanResult.InvalidParameter;
+            var handle = Backend is IHandleFileBackend ? Handle(info) : null;
+            var writeLength = buffer.Length;
+            if (handle is not null && info.PagingIo)
+            {
+                var size = handle.Stat().Size;
+                if (actualOffset < 0) actualOffset = size;
+                if (actualOffset >= size) return DokanResult.Success;
+                writeLength = (int)Math.Min(writeLength, size - actualOffset);
+            }
             var written = 0;
-            while (written < buffer.Length)
+            while (written < writeLength)
             {
                 // The server accepts up to 4 MiB per request. Using the full limit
                 // avoids extra remote round trips and repeated SMB file opens.
-                var count = Math.Min(MaxWriteChunkSize, buffer.Length - written);
+                var count = Math.Min(MaxWriteChunkSize, writeLength - written);
                 var chunk = written == 0 && count == buffer.Length ? buffer : buffer.AsSpan(written, count).ToArray();
                 var at = actualOffset < 0 ? -1 : actualOffset + written;
-                var current = Backend.Write(fileName, at, chunk);
+                var current = handle is null ? Backend.Write(fileName, at, chunk) : handle.Write(at, chunk);
+                if (current > chunk.Length) throw new IOException("Ongeldige schrijflengte.");
                 if (current <= 0) break;
                 written += current;
                 InvalidateMetadata();
                 if (current < chunk.Length) break;
             }
             bytesWritten = written;
-            return written == buffer.Length ? DokanResult.Success : DokanResult.Error;
+            return written == writeLength ? DokanResult.Success : DokanResult.Error;
         }
         catch (Exception ex) { return Map(ex, nameof(WriteFile)); }
     }
 
-    public NtStatus FlushFileBuffers(string fileName, IDokanFileInfo info) => DokanResult.Success;
+    public NtStatus FlushFileBuffers(string fileName, IDokanFileInfo info)
+    {
+        if (Backend is not IHandleFileBackend) return DokanResult.Success;
+        try { Handle(info).Flush(); return DokanResult.Success; }
+        catch (Exception ex) { return Map(ex, nameof(FlushFileBuffers)); }
+    }
 
     public NtStatus GetFileInformation(string fileName, out FileInformation fileInfo, IDokanFileInfo info)
     {
         var isRoot = IsRootPath(fileName);
         try
         {
-            var entry = Stat(fileName);
+            var entry = Backend is IHandleFileBackend && info.Context is IBackendFileHandle handle ? handle.Stat() : Stat(fileName);
             fileInfo = ToDokan(entry, fileName);
             if (isRoot)
                 DriveLog.Info($"Root callback: backend={BackendKind}; operation=GetFileInformation; status={DokanResult.Success}; entry={EntryClass(entry)}; empty-name={string.IsNullOrEmpty(entry.Name)}.");
@@ -241,14 +289,21 @@ internal sealed class DriveFileSystem : IDokanOperations
         }
     }
 
-    public NtStatus SetFileAttributes(string fileName, FileAttributes attributes, IDokanFileInfo info) => DokanResult.NotImplemented;
+    public NtStatus SetFileAttributes(string fileName, FileAttributes attributes, IDokanFileInfo info)
+    {
+        if (Backend is not IHandleFileBackend) return DokanResult.NotImplemented;
+        try { Handle(info).SetAttributes(attributes); InvalidateMetadata(); return DokanResult.Success; }
+        catch (Exception ex) { return Map(ex, nameof(SetFileAttributes)); }
+    }
 
     public NtStatus SetFileTime(string fileName, DateTime? creationTime, DateTime? lastAccessTime, DateTime? lastWriteTime, IDokanFileInfo info)
     {
         if (lastWriteTime is null) return DokanResult.Success;
         try
         {
-            Backend.SetModifiedTime(fileName, new DateTimeOffset(lastWriteTime.Value.ToUniversalTime()));
+            var modified = new DateTimeOffset(lastWriteTime.Value.ToUniversalTime());
+            if (Backend is IHandleFileBackend) Handle(info).SetModifiedTime(modified);
+            else Backend.SetModifiedTime(fileName, modified);
             InvalidateMetadata();
             return DokanResult.Success;
         }
@@ -259,6 +314,13 @@ internal sealed class DriveFileSystem : IDokanOperations
     {
         try
         {
+            if (Backend is IHandleFileBackend)
+            {
+                var handle = Handle(info);
+                if (handle.Stat().IsDirectory) return DokanResult.NotADirectory;
+                handle.Delete(); info.DeletePending = true; InvalidateMetadata();
+                return DokanResult.Success;
+            }
             var entry = Stat(fileName);
             if (entry.IsDirectory) return DokanResult.NotADirectory;
             info.DeletePending = true;
@@ -271,6 +333,13 @@ internal sealed class DriveFileSystem : IDokanOperations
     {
         try
         {
+            if (Backend is IHandleFileBackend)
+            {
+                var handle = Handle(info);
+                if (!handle.Stat().IsDirectory) return DokanResult.NotADirectory;
+                handle.Delete(); info.DeletePending = true; InvalidateMetadata();
+                return DokanResult.Success;
+            }
             var entry = Stat(fileName);
             if (!entry.IsDirectory) return DokanResult.NotADirectory;
             // Emptiness is a safety decision: do not use the short-lived Explorer cache.
@@ -285,7 +354,8 @@ internal sealed class DriveFileSystem : IDokanOperations
     {
         try
         {
-            Backend.Rename(oldName, newName, replace);
+            if (Backend is IHandleFileBackend) Handle(info).Rename(newName, replace);
+            else Backend.Rename(oldName, newName, replace);
             InvalidateMetadata();
             return DokanResult.Success;
         }
@@ -297,14 +367,28 @@ internal sealed class DriveFileSystem : IDokanOperations
         try
         {
             if (length < 0) return DokanResult.InvalidParameter;
-            Backend.Resize(fileName, length);
+            if (Backend is IHandleFileBackend) Handle(info).Resize(length);
+            else Backend.Resize(fileName, length);
             InvalidateMetadata();
             return DokanResult.Success;
         }
         catch (Exception ex) { return Map(ex, nameof(SetEndOfFile)); }
     }
 
-    public NtStatus SetAllocationSize(string fileName, long length, IDokanFileInfo info) => DokanResult.Success;
+    public NtStatus SetAllocationSize(string fileName, long length, IDokanFileInfo info)
+    {
+        if (Backend is not IHandleFileBackend) return DokanResult.Success;
+        try
+        {
+            if (length < 0) return DokanResult.InvalidParameter;
+            Handle(info).Reserve(length); InvalidateMetadata();
+            return DokanResult.Success;
+        }
+        catch (Exception ex) { return Map(ex, nameof(SetAllocationSize)); }
+    }
+
+    private static IBackendFileHandle Handle(IDokanFileInfo info) =>
+        info.Context as IBackendFileHandle ?? throw new IOException("De geopende bestandsreferentie ontbreekt.");
 
     public NtStatus LockFile(string fileName, long offset, long length, IDokanFileInfo info) => DokanResult.NotImplemented;
     public NtStatus UnlockFile(string fileName, long offset, long length, IDokanFileInfo info) => DokanResult.NotImplemented;
@@ -399,6 +483,8 @@ internal sealed class DriveFileSystem : IDokanOperations
             DriveApiException api when api.Status == 409 && api.Message.Contains("not empty", StringComparison.OrdinalIgnoreCase) => DokanResult.DirectoryNotEmpty,
             DriveApiException api when api.Status == 409 => DokanResult.AlreadyExists,
             DriveApiException api when api.Status == 400 => DokanResult.InvalidParameter,
+            DriveApiException api when api.Status == 423 => DokanResult.SharingViolation,
+            DriveApiException api when api.Status == 422 => DokanResult.DirectoryNotEmpty,
             DriveApiException => DokanResult.Error,
             DriveDisconnectedException => DokanResult.NotReady,
             FileNotFoundException => DokanResult.FileNotFound,

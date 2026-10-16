@@ -1,0 +1,2 @@
+# Preserve the exact pinned upstream bytes used by UPSTREAM-SHA256.json.
+embedded-tailscale/third_party/go-smb2/** -text

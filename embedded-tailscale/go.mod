@@ -2,6 +2,8 @@ module ugreen-remote-drive/embedded-tailscale
 
 go 1.27.2
 
+replace github.com/hirochachacha/go-smb2 => ./third_party/go-smb2
+
 require (
 	github.com/hirochachacha/go-smb2 v1.1.0
 	golang.org/x/sys v0.48.0
