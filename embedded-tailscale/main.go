@@ -57,14 +57,15 @@ type entry struct {
 	ModifiedUtc time.Time `json:"modifiedUtc"`
 }
 type app struct {
-	appendMu sync.Mutex
-	mu       sync.RWMutex
-	server   *tsnet.Server
-	host     string
-	share    *smb.Share
-	session  *smb.Session
-	conn     net.Conn
-	stateDir string
+	unlockState func()
+	appendMu    sync.Mutex
+	mu          sync.RWMutex
+	server      *tsnet.Server
+	host        string
+	share       *smb.Share
+	session     *smb.Session
+	conn        net.Conn
+	stateDir    string
 }
 
 func validHost(host string) bool {
@@ -113,17 +114,24 @@ func (a *app) start(host string) error {
 		}
 		return nil
 	}
+	unlock, err := lockState(a.stateDir)
+	if err != nil {
+		return err
+	}
 	store, err := openState(filepath.Join(a.stateDir, "identity.dpapi"))
 	if err != nil {
+		unlock()
 		return err
 	}
 	server := &tsnet.Server{Dir: a.stateDir, Hostname: "ugreen-remote-drive", Store: store,
 		Logf: func(string, ...any) {}, UserLogf: func(string, ...any) {}}
 	if err = server.Start(); err != nil {
 		server.Close()
+		unlock()
 		return err
 	}
 	a.server = server
+	a.unlockState = unlock
 	a.host = host
 	return nil
 }
@@ -371,6 +379,12 @@ func (a *app) fileOp(ctx context.Context, r request, data []byte) (any, []byte, 
 		if errors.Is(err, io.EOF) {
 			err = nil
 		}
+		if err != nil {
+			return nil, nil, err
+		}
+		if n < 0 || n > len(data) {
+			return nil, nil, os.ErrInvalid
+		}
 		return nil, data[:n], err
 	case "write":
 		if r.Offset < -1 {
@@ -383,7 +397,7 @@ func (a *app) fileOp(ctx context.Context, r request, data []byte) (any, []byte, 
 		defer f.Close()
 		offset := r.Offset
 		if offset == -1 {
-			info, e := f.Stat()
+			info, e := share.Lstat(path)
 			if e != nil {
 				return nil, nil, e
 			}
@@ -469,14 +483,14 @@ func errorStatus(err error) int {
 			return 404
 		case 0xc0000022:
 			return 403
-	case 0x8000002d, 0xc0000279:
-		return 403
+		case 0x8000002d, 0xc0000279:
+			return 403
 		case 0xc0000035:
 			return 409
-	case 0xc0000101, 0xc0000043:
-		return 409
-	case 0xc0000033, 0xc00000ba, 0xc0000103:
-		return 400
+		case 0xc0000101, 0xc0000043:
+			return 409
+		case 0xc0000033, 0xc00000ba, 0xc0000103:
+			return 400
 		}
 	}
 	return 503
@@ -585,6 +599,9 @@ func main() {
 	defer func() {
 		if a.server != nil {
 			a.server.Close()
+		}
+		if a.unlockState != nil {
+			a.unlockState()
 		}
 	}()
 	serve(a, os.Stdin, os.Stdout)

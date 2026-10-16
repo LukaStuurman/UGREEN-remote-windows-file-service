@@ -17,6 +17,21 @@ type protectedState struct {
 	values map[ipn.StateKey][]byte
 }
 
+func lockState(directory string) (func(), error) {
+	if err := os.MkdirAll(directory, 0700); err != nil {
+		return nil, err
+	}
+	path, err := windows.UTF16PtrFromString(filepath.Join(directory, "identity.lock"))
+	if err != nil {
+		return nil, err
+	}
+	handle, err := windows.CreateFile(path, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil, windows.OPEN_ALWAYS, windows.FILE_ATTRIBUTE_NORMAL, 0)
+	if err != nil {
+		return nil, err
+	}
+	return func() { windows.CloseHandle(handle) }, nil
+}
+
 func protect(data []byte, decrypt bool) ([]byte, error) {
 	if len(data) == 0 {
 		return nil, errors.New("empty-state")

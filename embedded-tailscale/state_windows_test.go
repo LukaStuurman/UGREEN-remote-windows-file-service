@@ -7,6 +7,29 @@ import (
 	"testing"
 )
 
+func TestTwoHelpersCannotUseTheSameNodeIdentity(t *testing.T) {
+	if os.Getenv("GITHUB_ACTIONS") != "true" {
+		t.Skip("Native state lock fixture is limited to a disposable runner")
+	}
+	directory := t.TempDir()
+	unlock, err := lockState(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := lockState(directory)
+	if err == nil {
+		second()
+		unlock()
+		t.Fatal("Concurrent identity access allowed")
+	}
+	unlock()
+	second, err = lockState(directory)
+	if err != nil {
+		t.Fatal("Closed identity lock stayed held", err)
+	}
+	second()
+}
+
 func TestPersistentIdentityUsesDPAPIAndFailsClosedOnCorruption(t *testing.T) {
 	if os.Getenv("GITHUB_ACTIONS") != "true" {
 		t.Skip("Native encrypted storage fixture is limited to a disposable runner")
