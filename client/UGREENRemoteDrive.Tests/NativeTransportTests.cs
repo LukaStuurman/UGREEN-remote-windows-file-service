@@ -45,6 +45,9 @@ public sealed class NativeTransportTests
             WindowStyle = unchecked((int)0x80000000), Width = 1, Height = 1
         });
         using var view = new WebView2();
+        // The connection screen hides the browser even while initializing it.
+        // Exercise native transport with that same visibility state.
+        view.Visibility = System.Windows.Visibility.Collapsed;
         source.RootVisual = view;
         var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: profile);
         await view.EnsureCoreWebView2Async(environment);
