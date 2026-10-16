@@ -87,11 +87,23 @@ ticketcontroles blijven gelden. WebView2 Runtime blijft vereist voor deze terugv
   gaan als ruwe begrensde bytes door de pipes, zonder base64. Geen offline writes
   en geen automatisch herhalen van onzekere writes na een timeout.
 - Relatieve paden blijven binnen Techbase. Rootmutaties, `..`, alternate streams,
-  symbolische links en reparse points worden geweigerd. Nieuwe files gebruiken
-  exclusive create. Een rename over een al bestaand doel wordt voorlopig veilig
-  geweigerd, ook bij replace: de SMB-library ondersteunt die atomic replace niet.
-  Programma's die daarop vertrouwen kunnen geen bestanden opslaan via deze preview.
-  De app verwijdert geen bestaand doel om een rename alsnog te laten slagen.
+  symbolische links en reparse points worden geweigerd.
+- Vanaf v0.6.0-preview.1 behoudt ieder geopend bestand zijn SMB-bestandsreferentie.
+  Lees-/schrijfoperaties, bestandsgrootte, attributen, hernoemen en verwijderen
+  gebruiken dat bestand, ook als hetzelfde pad intussen naar een ander bestand wijst.
+  Toegangs- en deelrechten worden naar SMB doorgegeven. Vervangen gebruikt één
+  server-side rename; de app verwijdert het bestaande doel niet vooraf.
+- Schrijven en groottewijzigingen krijgen pas succes na een bevestigde SMB-flush.
+  FlushFileBuffers doet een echte flush. Allocatie vergroot de logische lengte niet;
+  verkleinen en paging-writes respecteren EOF. Geen pad-readcache op open handles.
+  Dit kan meer netwerkverkeer geven; gegevensintegriteit heeft hier voorrang.
+- De gebruiker meldt dat Tailscale verbindt, maar dat AutoCAD-opslaan via de oude
+  route tekeningen beschadigt; lokaal, LAN-SMB en UGREENlink werken volgens de gebruiker.
+  De correctie is nog niet met echte AutoCAD/NAS-bestanden bevestigd. Bewaar de
+  oorspronkelijke DXF en goede lokale DWG. Test de update met een kopie en nieuwe
+  bestandsnaam. Bestaande corrupte tekeningen worden hiermee niet hersteld.
+  Er is geen betrouwbare byte-range-locking tussen verschillende NAS-clients;
+  tegelijk dezelfde tekening bewerken blijft buiten de ondersteunde werking.
 
 ## Verificatie en bouwen
 
@@ -103,6 +115,12 @@ een ontwikkelbuild de component niet bevatten; de app meldt dat bij verbinden.
 CI toetst paden, peerresolutie, begrensde binaire frames, een echte SMB-roundtrip
 op een wegwerpbare Samba-share, versleutelde identity-state en heropenen daarvan,
 private helper-pipes en het verplaatsen/verbergen van de UGREENlink-WebView.
+Aanvullende tests vergelijken willekeurige schrijfposities/headerupdates byte voor
+byte, allocatie versus EOF, delen/exclusieve opens en vervanging met oude open handles.
+Een native Dokany-mount met uitsluitend geheugenbestanden draait alleen op de
+wegwerpbare Windows-runner na de installerproef. Geen AutoCAD of NAS is daarbij betrokken.
+De gepinde SMB-bron heeft een beperkte lokale uitbreiding; de originele bestanden
+worden gecontroleerd tegen hun SHA-256-manifest.
 De SMB-fixture vervangt uitsluitend in de Go-test de netwerkverbinding; productie
 heeft die bypass niet. Er worden geen gebruikersaccounts, echte NAS-bestanden of
 Tailscale-sleutels gebruikt. Dit bewijst nog geen echte tailnetregistratie of NAS-mount.

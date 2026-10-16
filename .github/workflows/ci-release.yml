@@ -254,6 +254,10 @@ jobs:
       - name: Test fresh install, existing Dokany, and uninstall on disposable runner
         shell: pwsh
         run: ./installer/Test-Installer.ps1 -Installer (Join-Path $env:RUNNER_TEMP 'UGREENRemoteDrive-Setup-win-x64.exe')
+      - name: Verify random writes and save replacement through native mounted fixture
+        env:
+          UGREEN_SMOKE_DOKAN: 'true'
+        run: dotnet test client/UGREENRemoteDrive.sln -c Release --no-build --filter FullyQualifiedName~NativeMountedSaveRoundTripOnDisposableRunner
       - name: Collect installer diagnostic logs
         if: always()
         shell: pwsh

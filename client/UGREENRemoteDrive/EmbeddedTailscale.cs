@@ -148,7 +148,7 @@ internal sealed class TailscaleBroker : IDisposable
     }
 }
 
-internal sealed class EmbeddedTailscaleBackend : IFileBackend, ISmbConnector, IDisposable
+internal sealed class EmbeddedTailscaleBackend : IFileBackend, IHandleFileBackend, ISmbConnector, IDisposable
 {
     private readonly TailscaleBroker _broker;
     private readonly RemoteReadAheadCache _reads = new();
@@ -189,6 +189,24 @@ internal sealed class EmbeddedTailscaleBackend : IFileBackend, ISmbConnector, ID
         var data = TailscaleBroker.SecretBytes(key);
         try { Ensure(_broker.Call("authorize", data: data)); }
         finally { CryptographicOperations.ZeroMemory(data); }
+    }
+    public IBackendFileHandle OpenFile(string path, DokanNet.FileAccess access, FileShare sharing, FileMode mode,
+        FileOptions options, FileAttributes attributes, bool directory)
+    {
+        var disposition = mode switch { FileMode.Open => 1, FileMode.CreateNew => 2, FileMode.OpenOrCreate or FileMode.Append => 3, FileMode.Truncate => 4, FileMode.Create => 5, _ => throw new ArgumentException("Ongeldige openmodus.") };
+        uint createOptions = directory ? 1u : 0x40u;
+        if ((options & FileOptions.DeleteOnClose) != 0) createOptions |= 0x1000;
+        if ((options & FileOptions.WriteThrough) != 0) createOptions |= 2;
+        var reply = Send("open-handle", new { path = Normalize(path), access = unchecked((uint)access), sharing = (uint)sharing,
+            disposition, options = createOptions, attributes = (uint)(attributes & ~FileAttributes.Directory) });
+        return new EmbeddedFileHandle(this, reply.Value.GetProperty("handle").GetUInt64(), reply.Value.GetProperty("existed").GetBoolean());
+    }
+    internal TailnetReply HandleCall(string operation, ulong handle, object? arguments, byte[]? data)
+    {
+        var fields = new Dictionary<string, object?> { ["handle"] = handle };
+        if (arguments is not null)
+            foreach (var property in JsonSerializer.SerializeToElement(arguments).EnumerateObject()) fields[property.Name] = property.Value;
+        return operation is "handle-read" or "handle-stat" ? Send(operation, fields, data) : Mutate(() => Send(operation, fields, data));
     }
     public void Logout() { Ensure(_broker.Call("logout")); Volatile.Write(ref _authenticated, 0); Invalidate(); }
     public int Connect(string root, string userName, SecureString password)

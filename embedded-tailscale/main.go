@@ -27,19 +27,25 @@ import (
 const maxData = 4 << 20
 
 type request struct {
-	ID         int64     `json:"id"`
-	Op         string    `json:"op"`
-	Host       string    `json:"host,omitempty"`
-	User       string    `json:"user,omitempty"`
-	Path       string    `json:"path,omitempty"`
-	Target     string    `json:"target,omitempty"`
-	Offset     int64     `json:"offset,omitempty"`
-	Length     int       `json:"length,omitempty"`
-	Size       int64     `json:"size,omitempty"`
-	Modified   time.Time `json:"modified,omitempty"`
-	Replace    bool      `json:"replace,omitempty"`
-	Directory  bool      `json:"directory,omitempty"`
-	DataLength int       `json:"dataLength,omitempty"`
+	Handle      uint64    `json:"handle,omitempty"`
+	Access      uint32    `json:"access,omitempty"`
+	Sharing     uint32    `json:"sharing,omitempty"`
+	Disposition uint32    `json:"disposition,omitempty"`
+	Options     uint32    `json:"options,omitempty"`
+	Attributes  uint32    `json:"attributes,omitempty"`
+	ID          int64     `json:"id"`
+	Op          string    `json:"op"`
+	Host        string    `json:"host,omitempty"`
+	User        string    `json:"user,omitempty"`
+	Path        string    `json:"path,omitempty"`
+	Target      string    `json:"target,omitempty"`
+	Offset      int64     `json:"offset,omitempty"`
+	Length      int       `json:"length,omitempty"`
+	Size        int64     `json:"size,omitempty"`
+	Modified    time.Time `json:"modified,omitempty"`
+	Replace     bool      `json:"replace,omitempty"`
+	Directory   bool      `json:"directory,omitempty"`
+	DataLength  int       `json:"dataLength,omitempty"`
 }
 type response struct {
 	ID         int64  `json:"id"`
@@ -56,6 +62,9 @@ type entry struct {
 	ModifiedUtc time.Time `json:"modifiedUtc"`
 }
 type app struct {
+	handlesMu   sync.Mutex
+	handles     map[uint64]*openFile
+	nextHandle  uint64
 	unlockState func()
 	authMu      sync.Mutex
 	appendMu    sync.Mutex
@@ -270,6 +279,9 @@ func (a *app) closeSMB() {
 	if a.conn != nil {
 		a.conn.Close()
 	}
+	a.handlesMu.Lock()
+	a.handles = nil
+	a.handlesMu.Unlock()
 	a.share = nil
 	a.session = nil
 	a.conn = nil
@@ -491,8 +503,10 @@ func errorStatus(err error) int {
 			return 403
 		case 0xc0000035:
 			return 409
-		case 0xc0000101, 0xc0000043:
-			return 409
+		case 0xc0000101:
+			return 422
+		case 0xc0000043:
+			return 423
 		case 0xc0000033, 0xc00000ba, 0xc0000103:
 			return 400
 		}
@@ -506,6 +520,8 @@ func (a *app) handle(r request, data []byte) (response, []byte) {
 	var err error
 	var output []byte
 	switch r.Op {
+	case "open-handle", "handle-stat", "handle-read", "handle-write", "handle-flush", "handle-resize", "handle-reserve", "handle-rename", "handle-delete", "handle-close", "handle-times", "handle-attributes":
+		reply.Value, output, err = a.handleFile(ctx, r, data)
 	case "configure":
 		err = a.start(r.Host)
 	case "status":
