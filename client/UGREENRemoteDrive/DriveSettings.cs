@@ -7,6 +7,7 @@ internal sealed class DriveSettings
     public string RemoteUrl { get; set; } = "";
     public string NasPortalUrl { get; set; } = "";
     public string SmbPath { get; set; } = "";
+    public string TailscaleHost { get; set; } = "";
     public string DriveLetter { get; set; } = "U:";
     public bool AutoStart { get; set; }
     public bool RememberLogin { get; set; } = true;
@@ -44,6 +45,7 @@ internal static class SettingsStore
             RemoteUrl = settings.RemoteUrl.Trim(),
             NasPortalUrl = settings.NasPortalUrl.Trim(),
             SmbPath = settings.SmbPath.Trim(),
+            TailscaleHost = settings.TailscaleHost.Trim(),
             DriveLetter = settings.DriveLetter.Trim().ToUpperInvariant(),
             AutoStart = settings.AutoStart,
             RememberLogin = settings.RememberLogin,

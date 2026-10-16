@@ -24,7 +24,7 @@
             <TextBlock Text="UGREENlink-adres van je NAS of de Remote Drive-snelkoppeling" FontWeight="SemiBold" />
             <TextBox x:Name="RemoteUrlBox" Height="32" Margin="0,4,0,0" VerticalContentAlignment="Center"
                      ToolTip="Vul https://ug.link/… in, meld aan en open zelf de Remote Drive-tegel. De app onthoudt daarna automatisch het aparte app-adres." />
-            <TextBlock Text="Voor UGREENlink: vul https://ug.link/… in en open na aanmelden één keer de Remote Drive-tegel. Voor je eigen WireGuard-VPN mag dit veld leeg blijven; vul dan hieronder alleen de Techbase SMB-share in."
+            <TextBlock Text="Voor ingebouwde Tailscale mag dit leeg blijven. Vul bij Optioneel de Tailscale-naam van je NAS in. UGREENlink is een alternatief met een apart aanmeldvenster."
                        FontSize="11" Foreground="#666" Margin="0,3,0,0" TextWrapping="Wrap" />
         </StackPanel>
 
@@ -37,7 +37,7 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Margin="0,0,14,0">
-                    <TextBlock Text="Techbase SMB-share (LAN of eigen WireGuard-VPN)" FontWeight="SemiBold" />
+                    <TextBlock Text="Techbase SMB-share op je lokale netwerk (optioneel)" FontWeight="SemiBold" />
                     <TextBox x:Name="SmbPathBox" Height="30" Margin="0,4,0,0" VerticalContentAlignment="Center"
                              ToolTip="Alleen de share-root: \\NASNAAM\Techbase op het LAN, of \\10.203.0.1\Techbase via de directe WireGuard-container." />
                     <WrapPanel Margin="0,6,0,0">
@@ -52,6 +52,13 @@
                 <Button x:Name="ForgetLoginButton" Grid.Column="2" Content="UGREENlink-aanmelding wissen"
                         Padding="10,6" VerticalAlignment="Bottom" Click="ForgetLoginButton_Click" />
             </Grid>
+            <TextBlock Text="Tailscale NAS-naam of Tailscale IPv4-adres (zonder aparte VPN-app)" FontWeight="SemiBold" Margin="0,12,0,0" />
+            <TextBox x:Name="TailscaleHostBox" Height="30" Margin="0,4,0,0" VerticalContentAlignment="Center"
+                     ToolTip="Volledige NAS-naam eindigend op .ts.net, of het Tailscale 100.64–127.x.x-adres. Geen https of sharepad." />
+            <WrapPanel Margin="0,6,0,0">
+                <Button x:Name="ConnectTailscaleButton" Content="Verbinden via ingebouwde Tailscale" Padding="10,5" Margin="0,0,8,0" Click="ConnectTailscaleButton_Click" />
+                <Button x:Name="ForgetTailscaleButton" Content="Tailscale-toestemming wissen" Padding="10,5" Click="ForgetTailscaleButton_Click" />
+            </WrapPanel>
             <WrapPanel Margin="0,10,0,0">
                 <CheckBox x:Name="RememberLoginBox" Content="UGREENlink-aanmelding onthouden" Margin="0,0,18,0" Click="ConnectionPreferencesChanged"
                           ToolTip="Gebruikt de eigen browseropslag en de optie ingelogd blijven van UGREEN. Je kunt eenmalig de browservraag om je wachtwoord te bewaren accepteren." />
@@ -91,9 +98,9 @@
             <Grid Grid.Row="1">
                 <StackPanel x:Name="DirectConnectionPanel" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="550">
                     <TextBlock Text="Je NAS in Verkenner" FontSize="24" FontWeight="SemiBold" TextAlignment="Center" />
-                    <TextBlock Text="Verbind via je lokale netwerk of je actieve WireGuard-VPN. De app gebruikt je Windows-verbinding of vraagt om je NAS-gebruikersnaam en wachtwoord."
+                    <TextBlock Text="Thuis via je lokale netwerk, onderweg met ingebouwde Tailscale. Geen aparte Tailscale-app nodig. Je NAS-gebruikersnaam en wachtwoord voer je in een pop-up in."
                                TextWrapping="Wrap" TextAlignment="Center" Foreground="#555" Margin="0,12,0,0" />
-                    <TextBlock Text="Vul je Techbase SMB-share in bij Optioneel en klik op Verbinden. UGREENlink blijft beschikbaar als alternatief en gebruikt het UGREEN-aanmeldscherm."
+                    <TextBlock Text="Vul je NAS-gegevens in bij Optioneel en klik op Verbinden. Tailscale vraagt eenmalig een verbindingssleutel; daarna onthoudt deze app zijn eigen verbinding."
                                TextWrapping="Wrap" TextAlignment="Center" Foreground="#555" Margin="0,10,0,0" />
                 </StackPanel>
                 <Border x:Name="BrowserHost" Visibility="Collapsed" BorderBrush="#D5DADF" BorderThickness="1" CornerRadius="6" ClipToBounds="True">

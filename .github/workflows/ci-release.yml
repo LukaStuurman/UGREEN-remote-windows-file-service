@@ -144,9 +144,38 @@ jobs:
       - name: Verify encrypted SMB round trip and blocked forwarding in isolated containers
         run: bash direct-wireguard/tests/smoke.sh
 
+  embedded-transport-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: embedded-tailscale/go.mod
+          cache-dependency-path: embedded-tailscale/go.sum
+      - name: Verify dependency checksums
+        working-directory: embedded-tailscale
+        run: go mod verify
+      - name: Test SMB over a private fixture connection without a tailnet or user data
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build -t ugreen-embedded-smb-fixture -f embedded-tailscale/tests/Dockerfile .
+          docker run -d --name ugreen-embedded-smb-ci -p 127.0.0.1::445 ugreen-embedded-smb-fixture >/dev/null
+          trap 'docker rm --force ugreen-embedded-smb-ci >/dev/null 2>&1 || true' EXIT
+          for _ in $(seq 1 30); do
+            if docker exec ugreen-embedded-smb-ci python3 -c 'import socket; socket.create_connection(("127.0.0.1",445),timeout=1).close()' >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          docker exec ugreen-embedded-smb-ci sh -c 'mkdir /fixture/Outside; ln -s /fixture/Outside /fixture/Techbase/blocked; chown -h fixture:fixture /fixture/Techbase/blocked'
+          export UGREEN_SMOKE_SMB_ADDR="$(docker port ugreen-embedded-smb-ci 445/tcp)"
+          cd embedded-tailscale
+          go test -v ./...
+
   windows-build:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -154,6 +183,12 @@ jobs:
       - uses: actions/setup-dotnet@v6.0.0
         with:
           dotnet-version: '8.0.x'
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: embedded-tailscale/go.mod
+          cache-dependency-path: embedded-tailscale/go.sum
+      - name: Build and verify bundled Tailscale transport
+        run: ./embedded-tailscale/Build.ps1
       - name: Restore Windows client
         run: dotnet restore client/UGREENRemoteDrive.sln
       - name: Build Windows client
@@ -262,6 +297,7 @@ jobs:
       - server-tests
       - container-smoke
       - wireguard-smoke
+      - embedded-transport-tests
       - windows-build
     runs-on: ubuntu-latest
     permissions:

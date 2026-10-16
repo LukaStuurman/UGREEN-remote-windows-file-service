@@ -14,3 +14,5 @@ node_modules/
 *.psk
 Techbase-direct.conf
 .wireguard-*
+embedded-tailscale/UGREENTailscale.exe
+embedded-tailscale/THIRD-PARTY-NOTICES.txt

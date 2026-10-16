@@ -1,8 +1,8 @@
 # UGREEN Remote Windows File Service
 
-Latest preview: [`v0.4.1-preview.1`](https://github.com/LukaStuurman/UGREEN-remote-windows-file-service/releases/tag/v0.4.1-preview.1). Adds a native NAS sign-in window for LAN/WireGuard SMB, optional Windows Credential Manager storage, and a connection screen that hides the browser after connecting. UGREENlink retains its own web sign-in. Download **`UGREENRemoteDrive-Setup-win-x64.exe`**, with Dokany included. **`UGREENDirectWireGuard-docker.zip`** contains the separate Docker project and instructions; it does not install or configure a router/VPN by itself. Real NAS/router integration remains unverified.
+Latest preview: [`v0.5.0-preview.1`](https://github.com/LukaStuurman/UGREEN-remote-windows-file-service/releases/tag/v0.5.0-preview.1). Adds **embedded Tailscale**, with no separate Windows Tailscale app, service or adapter required. A one-time auth key authorizes the app without a Tailscale login page; the app then remembers its own encrypted identity. The NAS username/password is entered in a native popup. UGREENlink sign-in moves from the bottom of the main window into a separate popup. Download **`UGREENRemoteDrive-Setup-win-x64.exe`**, with Dokany and the Tailscale component included. Read the [Dutch embedded Tailscale guide](docs/embedded-tailscale.md) for setup and preview limitations. Actual tailnet enrollment and NAS integration remain unverified.
 
-Mount only the UGREEN NAS shared folder named `Techbase` as a fixed Windows drive letter. At home, the client prefers the `Techbase` SMB share. Away from home, it uses a small API container reached through a UGREENlink Docker desktop shortcut (`*.ugapp.link` or `*.ugdocker.link`).
+Mount only the UGREEN NAS shared folder named `Techbase` as a fixed Windows drive letter. At home, the client prefers the configured local `Techbase` SMB share. Away from home, it can use embedded Tailscale to the existing NAS peer, or the API container reached through a UGREENlink Docker desktop shortcut (`*.ugapp.link` or `*.ugdocker.link`).
 
 The Windows client opens the shortcut in its own WebView2 window. Sign in with the normal UGREENlink login; **there is no second access code to enter**. UGREEN states that remote access to Docker container shortcuts is available only to users signed in via UGREENlink ([official guide](https://support.ugnas.com/detail/article/en-US/715)). The client uses that authenticated browser session with `credentials: include`; it never reads or exports cookies, password fields, or the browser password database. The browser can save your password locally if you accept its Save Password prompt; no password is placed in app settings or logs.
 
@@ -14,7 +14,27 @@ The Windows client opens the shortcut in its own WebView2 window. Sign in with t
 - `docker-compose.ugreen.yaml`: UGREEN NAS Docker Project Compose file.
 - `docker-compose.wireguard.yaml` and `direct-wireguard/`: optional direct WireGuard endpoint with an SMB-only proxy to the existing NAS; no NAS folder mounts or cloud relay. See the [Dutch WireGuard installation and router guide](docs/direct-wireguard.md).
 
-## Optional direct connection
+## Embedded Tailscale (preferred remote route)
+
+Use the NAS's existing Tailscale installation. In the Windows app, fill its full
+`.ts.net` name or Tailscale IPv4 under **Optioneel**, then select **Verbinden via
+ingebouwde Tailscale**. A tailnet administrator supplies a one-time non-ephemeral
+auth key in the app's protected setup popup, followed by the local UGOS NAS
+username/password. No Tailscale account login page or separate Windows VPN app
+is needed. The UGREENlink URL can be blank. The existing LAN share remains a
+separate setting and is preferred by the ordinary Connect button when reachable.
+
+The helper only resolves the configured NAS from its authenticated peer list and
+dials that peer on TCP 445; no public DNS fallback or listener/proxy is used.
+Only Techbase is mounted. Tailscale can use a direct or relayed connection; the
+app reports the observed type after connecting without promising P2P.
+State is protected with Windows DPAPI. Existing system Tailscale state and
+credentials are not imported or changed. See the [setup, restrictions and
+verification guide](docs/embedded-tailscale.md). This preview safely refuses
+renaming over an existing destination; apps requiring atomic replace may fail
+to save files. No existing destination is pre-deleted.
+
+## Earlier optional WireGuard project
 
 For an own direct tunnel, use the separate WireGuard Docker project and the
 official WireGuard Windows client. This needs a reachable public IPv4/DDNS,
