@@ -10,6 +10,14 @@ De eerste implementatie staat op `main` in commit `456fe4d` (`feat: add UGREENli
 
 ## Huidige status — 2026-09-27
 
+### Eigen NAS-inlogvenster — 2026-10-16
+
+- Gebruiker vroeg expliciet om een eigen gebruikersnaam-/wachtwoordvenster in plaats van WebView. `v0.4.1-preview.1` voegt dit toe voor LAN/WireGuard-SMB met het lokale UGOS-account. De eerdere algemene regel dat de app geen SMB-wachtwoord verwerkt wordt hiermee uitsluitend voor deze expliciet gekozen route vervangen. UGREENlink blijft de eigen browseraanmelding gebruiken; de openbare UGOS app-integratie documenteert geen rechtstreekse wachtwoordaanmelding voor deze losse Windows-client.
+- `SmbSignIn.cs` gebruikt WNetAddConnection2 zonder driveletter of het verbreken van andere sessies. PasswordBox/SecureString en tijdelijk gewiste native buffers; geen wachtwoord in JSON/logs/browserinjectie. Onthouden uitsluitend na succes, als eigen Generic credential `UGREENRemoteDrive:SMB:<gevalideerde-root>` in Windows Credential Manager. Leest/vervangt geen bestaande SMB-, Edge- of WebView-wachtwoorden. Geen NAS-inloggegevens uitlezen tijdens agentwerk.
+- Herstel eenmaal per adres per appstart, uitsluitend bij bereikbare SMB-poort; de statustimer herhaalt geen verkeerde wachtwoorden. Een andere bestaande Windows-identiteit (1219) wordt gemeld zonder sessies te verbreken. Vergeten raakt alleen de eigen entry voor het huidige adres; bestaande SMB-sessies eindigen daardoor niet. LAN en WireGuard zijn afzonderlijke adressen/entries.
+- Bij lokale SMB geen NAS-webdesktop openen; eigen verbindingspaneel. UGREENlink-browser zichtbaar voor benodigde aanmelding, daarna verborgen; expliciete knop UGREENlink openen blijft beschikbaar. Runtime blijft vereist. Geen browser-origin-, popup-, ticket- of authenticatiebeleid versoepeld.
+- Verificatie: unit-tests met fictieve store/connector en een Credential Manager roundtrip uitsluitend op wegwerpbare GitHub-runner. Geen lokale credentials gelezen of geschreven door tests, geen echte NAS-login of schrijftest uitgevoerd. Geen nieuwe NAS-container of routerwijziging nodig voor deze client-update.
+
 ### Eigen directe WireGuard-route — 2026-10-15
 
 - Gebruiker vroeg een Docker-app voor direct verbinden en koos expliciet WireGuard. `v0.4.0-preview.1` voegt daarvoor een apart Compose-project toe. De bestaande UGREENlink-container en browser-originregels blijven intact. Geen live NAS-/routerwijzigingen zonder concrete configuratie en afstemming.
@@ -126,7 +134,7 @@ De server weigert absolute paden, `..`, paden buiten de ingestelde root, symboli
 
 - `client/UGREENRemoteDrive/` is een WPF-app voor .NET 8 (`net8.0-windows`). Belangrijke onderdelen: `DriveFileSystem.cs` vertaalt Dokany-operaties; `StorageBackends.cs` implementeert SMB en remote API; `RemoteBridge.cs` koppelt Dokan-workerthreads aan de WebView2-browser; `DriveSettings.cs` bewaart instellingen en logt.
 - NuGet-referenties: DokanNet `2.3.0.3`, WebView2 `1.0.4191.47`. De officiële Dokany 2.3 runtime/driver wordt door de nieuwe setup meegenomen en geïnstalleerd als hij ontbreekt; portable downloads blijven een bestaande driver vereisen.
-- De SMB-backend gebruikt de bestaande Windows SMB-identiteit en bewaart geen SMB-wachtwoord. Configuratie en backend accepteren uitsluitend de UNC-share-root `\\server\Techbase`, zonder andere shares of submappen. De client controleert SMB periodiek; bereikbare SMB krijgt voorrang boven remote.
+- De SMB-backend gebruikt de bestaande Windows SMB-identiteit. Het nieuwe expliciet gekozen NAS-inlogvenster kan een eigen aanmelding onthouden in Windows Credential Manager; zie de status hierboven. Configuratie en backend accepteren uitsluitend de UNC-share-root `\\server\Techbase`, zonder andere shares of submappen. De client controleert SMB periodiek; bereikbare SMB krijgt voorrang boven remote.
 - De statuscontrole loopt via een 5-seconden UI-timer; SMB-probes hebben een timeout van 2 seconden en remote-authenticatie wordt periodiek opnieuw geprobeerd. Een onderbroken lopende bestandsactie wordt niet gegarandeerd hervat: de app meldt de fout zodat die opnieuw kan worden uitgevoerd.
 - De client draait in het systeemvak. Optioneel kan Windows-aanmelding worden ingesteld via de current-user Run-registersleutel. Bij autostart kan de app zichtbaar worden als opnieuw aanmelden vereist is.
 - Configuratie en WebView2-profiel staan onder `%LOCALAPPDATA%\UGREEN Remote Drive`; logs staan in de submap `logs`. Oude versies bewaarden een DPAPI-versleuteld token; de nieuwe client negeert het legacyveld en verwijdert het bij de volgende configuratie-save.

@@ -55,6 +55,10 @@ public partial class MainWindow : Window
     private DesktopTileSelection? _lastDesktopSelection;
     private int _lastDesktopSelectionGeneration = -1;
     private DateTimeOffset _lastDesktopSelectionAt;
+    private readonly SmbSignInService _smbSignIn = SmbSignInService.Create();
+    private readonly HashSet<string> _savedSmbSignInAttempted = new(StringComparer.OrdinalIgnoreCase);
+    private bool _nativeSignInActive;
+    private bool _connectionActionInProgress;
 
     public MainWindow()
     {
@@ -72,6 +76,7 @@ public partial class MainWindow : Window
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        SetConfigurationControlsEnabled(false);
         _settings = SettingsStore.Load();
         RemoteUrlBox.Text = string.IsNullOrWhiteSpace(_settings.RemoteUrl) ? _settings.NasPortalUrl : _settings.RemoteUrl;
         SmbPathBox.Text = _settings.SmbPath;
@@ -109,11 +114,29 @@ public partial class MainWindow : Window
         {
             StatusText.Text = "WebView2 kon niet starten. Installeer zo nodig de officiële Microsoft Edge WebView2 Runtime.";
             DriveLog.Error("WebView2 initialization failed: " + ex.GetType().Name);
+            SetConfigurationControlsEnabled(true);
             return;
         }
 
-        if (TryConfigureFromSettings())
+        TryConfigureFromSettings();
+        RebuildBackends();
+        if (_backends is not null) await _backends.ProbeSmbAsync(useRecentResult: true);
+        if (await TryMountFromSmbAsync(restoreSavedSignIn: true))
         {
+            // A direct connection does not open the NAS web desktop.
+        }
+        else if (_backends?.SmbReachable == true)
+        {
+            StatusText.Text = "De lokale Techbase-share is bereikbaar. Klik op Verbinden om de schijf te openen.";
+        }
+        else if (_connectAndMountRequested && !string.IsNullOrWhiteSpace(_settings.SmbPath) &&
+                 await SmbSignInService.CanContactServerAsync(_settings.SmbPath))
+        {
+            await SignInAndMountSmbAsync();
+        }
+        else if (TryConfigureFromSettings())
+        {
+            ShowRemoteBrowser(true);
             Browser.Source = new Uri(_bridge!.BuildServiceRootUrl());
             StatusText.Text = "UGREENlink openen. Meld aan in dit appvenster; Edge-aanmelding wordt niet overgenomen.";
         }
@@ -121,10 +144,8 @@ public partial class MainWindow : Window
         {
             // Keep the window visible so a first-time sign-in and shortcut selection can finish.
         }
-        RebuildBackends();
-        if (_backends is not null) _ = _backends.ProbeSmbAsync(useRecentResult: true);
-        _ = TryMountFromSmbAsync();
         _statusTimer.Start();
+        SetConfigurationControlsEnabled(_dokanInstance is null);
         if (!_shortcutDiscoveryActive && Environment.GetCommandLineArgs().Contains("--minimized", StringComparer.OrdinalIgnoreCase)) Hide();
     }
 
@@ -666,6 +687,7 @@ public partial class MainWindow : Window
         }
         if (_activePage == BrowserPage.Login)
         {
+            if (!_nativeSignInActive && _mountedBackend is not SmbBackend) ShowRemoteBrowser(true);
             DriveLog.Info($"Top-level navigation completed: page=recognized-ugreen-login, success={e.IsSuccess}, webError={e.WebErrorStatus}.");
             if (!TryStartAutomaticTileOpen())
             {
@@ -730,6 +752,7 @@ public partial class MainWindow : Window
             }
             if (completedPage == BrowserPage.Login && _activePage == BrowserPage.Login)
             {
+                if (!_nativeSignInActive && _mountedBackend is not SmbBackend) ShowRemoteBrowser(true);
                 if (!TryStartAutomaticTileOpen())
                     StatusText.Text = navigationSucceeded
                         ? "Meld aan in dit appvenster en klik zo nodig op de Remote Drive-tegel op het UGREENlink-bureaublad."
@@ -949,6 +972,7 @@ public partial class MainWindow : Window
         RecordRemoteAuthenticationResult(result);
         if (result.Authenticated)
         {
+            ShowRemoteBrowser(false);
             _healthNavigationAttempted = false;
             _loginFlowActive = false;
             StatusText.Text = "UGREENlink en de NAS-service zijn verbonden.";
@@ -976,8 +1000,15 @@ public partial class MainWindow : Window
         UpdateBackendText();
     }
 
-    private async void ConnectButton_Click(object sender, RoutedEventArgs e)
+    private async void ConnectButton_Click(object sender, RoutedEventArgs e) => await ConnectAsync(trySmb: true);
+
+    private async void RemoteConnectButton_Click(object sender, RoutedEventArgs e) => await ConnectAsync(trySmb: false);
+
+    private async Task ConnectAsync(bool trySmb)
     {
+        if (_nativeSignInActive || _connectionActionInProgress || _dokanInstance is not null) return;
+        _connectionActionInProgress = true;
+        SetConfigurationControlsEnabled(false);
         try
         {
             if (_ticketBootstrapCleanupInProgress)
@@ -988,7 +1019,14 @@ public partial class MainWindow : Window
             _connectAndMountRequested = true;
             _autoMountAttempted = false;
             SaveSettingsFromForm(navigateToRemote: false);
-            if (await TryMountFromSmbAsync()) return;
+            if (trySmb && await TryMountFromSmbAsync(restoreSavedSignIn: true)) return;
+            if (trySmb && !string.IsNullOrWhiteSpace(_settings.SmbPath) &&
+                await SmbSignInService.CanContactServerAsync(_settings.SmbPath))
+            {
+                await SignInAndMountSmbAsync();
+                return;
+            }
+            ShowRemoteBrowser(true);
             if (string.IsNullOrWhiteSpace(_settings.RemoteUrl))
             {
                 if (string.IsNullOrWhiteSpace(_settings.NasPortalUrl))
@@ -1018,6 +1056,11 @@ public partial class MainWindow : Window
             _connectAndMountRequested = false;
             StatusText.Text = ex.Message;
         }
+        finally
+        {
+            _connectionActionInProgress = false;
+            SetConfigurationControlsEnabled(_dokanInstance is null);
+        }
     }
 
     private async Task MountDriveAsync()
@@ -1045,6 +1088,7 @@ public partial class MainWindow : Window
                 options.MountPoint = mountPoint;
             });
         _mountedBackend = _backends.PinForMount();
+        ShowRemoteBrowser(false);
         var fileSystem = new DriveFileSystem(_mountedBackend);
         _dokanInstance = builder.Build(fileSystem);
         _mountedPoint = mountPoint;
@@ -1072,11 +1116,30 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task<bool> TryMountFromSmbAsync()
+    private async Task<bool> TryMountFromSmbAsync(bool restoreSavedSignIn = false)
     {
         if (!_connectAndMountRequested || _backends is null || string.IsNullOrWhiteSpace(_settings.SmbPath)) return false;
         await _backends.ProbeSmbAsync(useRecentResult: true);
-        if (!_backends.SmbReachable) return false;
+        if (!_backends.SmbReachable && restoreSavedSignIn && !_savedSmbSignInAttempted.Contains(_settings.SmbPath) &&
+            await SmbSignInService.CanContactServerAsync(_settings.SmbPath))
+        {
+            var root = _settings.SmbPath;
+            _savedSmbSignInAttempted.Add(root);
+            try
+            {
+                var result = await Task.Run(() => _smbSignIn.Restore(root));
+                if (!root.Equals(_settings.SmbPath, StringComparison.OrdinalIgnoreCase) || _dokanInstance is not null) return false;
+                if (result?.Success == true)
+                {
+                    _backends = null; // Discard any probe begun before the new SMB session.
+                    RebuildBackends();
+                    await _backends!.ProbeSmbAsync();
+                }
+                else if (result is not null) StatusText.Text = result.Message;
+            }
+            catch { StatusText.Text = "De onthouden NAS-aanmelding kon niet worden gebruikt. Klik op Aanmelden bij NAS."; }
+        }
+        if (_backends?.SmbReachable != true) return false;
         try
         {
             await MountDriveAsync();
@@ -1212,7 +1275,7 @@ public partial class MainWindow : Window
 
     private async Task MaybeAutoMountAsync(bool requested = false)
     {
-        if ((!_settings.AutoStart && !requested) || _autoMountAttempted || _dokanInstance is not null) return;
+        if (_nativeSignInActive || (!_settings.AutoStart && !requested) || _autoMountAttempted || _dokanInstance is not null) return;
         _autoMountAttempted = true;
         try
         {
@@ -1288,6 +1351,7 @@ public partial class MainWindow : Window
         {
             var portal = UgreenLinkSetupAddress.Parse(_settings.NasPortalUrl);
             if (portal.Kind != UgreenLinkSetupKind.NasPortal) return false;
+            ShowRemoteBrowser(true);
             _shortcutDiscoveryActive = true;
             _loginFlowActive = true;
             Browser.Source = portal.Address;
@@ -1332,13 +1396,74 @@ public partial class MainWindow : Window
         BackendText.Text = "Backend: " + (_backends?.Mode ?? "geen");
     }
 
+    private void ShowRemoteBrowser(bool visible)
+    {
+        BrowserHost.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        DirectConnectionPanel.Visibility = visible ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private async void SmbSignInButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_nativeSignInActive || _dokanInstance is not null) return;
+        try
+        {
+            SaveSettingsFromForm(navigateToRemote: false);
+            _connectAndMountRequested = true;
+            await SignInAndMountSmbAsync();
+        }
+        catch (Exception ex) { StatusText.Text = ex.Message; }
+    }
+
+    private async Task SignInAndMountSmbAsync()
+    {
+        if (_nativeSignInActive || _dokanInstance is not null) return;
+        _nativeSignInActive = true;
+        SetConfigurationControlsEnabled(false);
+        ShowRemoteBrowser(false);
+        try
+        {
+            var dialog = new NasSignInWindow(_settings.SmbPath, _smbSignIn) { Owner = this };
+            if (dialog.ShowDialog() != true)
+            {
+                _connectAndMountRequested = false;
+                StatusText.Text = "NAS-aanmelding geannuleerd. Klik opnieuw op Verbinden om een verbinding te kiezen.";
+                return;
+            }
+            _savedSmbSignInAttempted.Add(_settings.SmbPath);
+            _backends = null;
+            RebuildBackends();
+            if (!await TryMountFromSmbAsync())
+                StatusText.Text = "Aangemeld, maar de schijf kon niet worden geopend. Controleer de Techbase-rechten en de driver.";
+            if (dialog.SaveWarning is not null) StatusText.Text += " " + dialog.SaveWarning;
+        }
+        finally
+        {
+            _nativeSignInActive = false;
+            SetConfigurationControlsEnabled(_dokanInstance is null);
+        }
+    }
+
+    private void ForgetSmbButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_nativeSignInActive || _dokanInstance is not null) return;
+        try
+        {
+            _smbSignIn.Forget(SmbPathBox.Text);
+            StatusText.Text = "De door deze app onthouden NAS-aanmelding is gewist. Een actieve Windows SMB-sessie blijft werken tot Windows die sluit.";
+        }
+        catch { StatusText.Text = "De NAS-aanmelding kon niet worden gewist. Controleer het Techbase SMB-adres en probeer opnieuw."; }
+    }
+
     private void SetConfigurationControlsEnabled(bool enabled)
     {
         RemoteUrlBox.IsEnabled = enabled;
         SmbPathBox.IsEnabled = enabled;
+        SmbSignInButton.IsEnabled = enabled;
+        ForgetSmbButton.IsEnabled = enabled;
         DriveLetterBox.IsEnabled = enabled;
         StartupBox.IsEnabled = enabled;
         ConnectButton.IsEnabled = enabled;
+        RemoteConnectButton.IsEnabled = enabled;
         ForgetLoginButton.IsEnabled = enabled;
         RememberLoginBox.IsEnabled = enabled;
         AutoOpenShortcutBox.IsEnabled = enabled;
