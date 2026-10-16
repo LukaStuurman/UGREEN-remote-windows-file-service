@@ -186,8 +186,14 @@ func (a *app) handleFile(ctx context.Context, r request, data []byte) (any, []by
 		}
 		return nil, nil, err
 	case "handle-times":
+		if h.root {
+			return nil, nil, os.ErrPermission
+		}
 		return nil, nil, h.file.Chtimes(r.Modified, r.Modified)
 	case "handle-attributes":
+		if h.root {
+			return nil, nil, os.ErrPermission
+		}
 		return nil, nil, h.file.SetAttributes(r.Attributes)
 	case "handle-close":
 		// Writes/truncates already have acknowledged SMB flushes. A close failure

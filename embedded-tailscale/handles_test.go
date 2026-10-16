@@ -93,6 +93,14 @@ func TestSMBHandleSaveReplaceAndIdentity(t *testing.T) {
 		t.Fatal("Closing/deleting old file damaged replacement")
 	}
 	call(request{Op: "handle-close", Handle: check}, nil)
+	// Metadata changes also follow the file ID after rename.
+	modified := time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC)
+	call(request{Op: "handle-times", Handle: replacement, Modified: modified}, nil)
+	call(request{Op: "handle-attributes", Handle: replacement, Attributes: 0x20}, nil)
+	info := call(request{Op: "handle-stat", Handle: replacement}, nil).Value.(entry)
+	if !info.ModifiedUtc.Equal(modified) {
+		t.Fatal("Modified time did not follow renamed file")
+	}
 	call(request{Op: "handle-resize", Handle: replacement, Size: 333}, nil)
 	if got := read(replacement, 0, 400); !bytes.Equal(got, fresh[:333]) {
 		t.Fatal("Logical truncate failed")
@@ -109,8 +117,33 @@ func TestSMBHandleSaveReplaceAndIdentity(t *testing.T) {
 	}
 	call(request{Op: "handle-delete", Handle: locked}, nil)
 	call(request{Op: "handle-close", Handle: locked}, nil)
+	readOnly := open("save-fixture.dwg", 1, 0x80000000, 7)
+	denied, _ = a.handle(request{ID: 1, Op: "handle-write", Handle: readOnly}, []byte{9})
+	if denied.Status != 403 {
+		t.Fatalf("Read-only write was not refused: %d", denied.Status)
+	}
+	denied, _ = a.handle(request{ID: 1, Op: "handle-flush", Handle: readOnly}, nil)
+	if denied.Status != 403 {
+		t.Fatal("Failed write became a successful flush")
+	}
+	call(request{Op: "handle-close", Handle: readOnly}, nil)
 	call(request{Op: "handle-delete", Handle: replacement}, nil)
 	call(request{Op: "handle-close", Handle: replacement}, nil)
+	// A persistent root handle must refresh an expired opening context and
+	// reject mutation even though metadata queries and close remain permitted.
+	opening, cancelOpening := context.WithCancel(ctx)
+	value, _, err := a.handleFile(opening, request{Op: "open-handle", Path: "", Access: 0x80000000, Sharing: 7, Disposition: 1, Options: 1}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := value.(map[string]any)["handle"].(uint64)
+	cancelOpening()
+	call(request{Op: "handle-stat", Handle: root}, nil)
+	denied, _ = a.handle(request{ID: 1, Op: "handle-delete", Handle: root}, nil)
+	if denied.Status != 403 {
+		t.Fatal("Root handle mutation allowed")
+	}
+	call(request{Op: "handle-close", Handle: root}, nil)
 	// Root and symlink guards also apply to the new handle API.
 	for _, r := range []request{{Op: "open-handle", Path: "", Disposition: 5, Access: 0x40000000}, {Op: "open-handle", Path: "../escape", Disposition: 2}, {Op: "open-handle", Path: "blocked/file", Disposition: 2}} {
 		r.ID = 1

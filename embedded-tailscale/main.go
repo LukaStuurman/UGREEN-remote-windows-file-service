@@ -345,14 +345,14 @@ func toEntry(info os.FileInfo, root bool) entry {
 	return entry{name, info.IsDir(), info.Size(), created, info.ModTime().UTC()}
 }
 func (a *app) fileOp(ctx context.Context, r request, data []byte) (any, []byte, error) {
-	if r.Op == "write" && r.Offset == -1 {
-		a.appendMu.Lock()
-		defer a.appendMu.Unlock()
-	}
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	if a.share == nil {
 		return nil, nil, os.ErrPermission
+	}
+	if r.Op == "write" && r.Offset == -1 {
+		a.appendMu.Lock()
+		defer a.appendMu.Unlock()
 	}
 	share := a.share.WithContext(ctx)
 	path, err := safePath(r.Path, r.Op == "stat" || r.Op == "list" || r.Op == "space")
