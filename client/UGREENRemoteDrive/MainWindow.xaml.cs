@@ -1474,8 +1474,7 @@ public partial class MainWindow : Window
             }
             if (status.State != "Running")
             {
-                if (status.State == "NeedsMachineAuth") throw new InvalidOperationException("De Tailscale-beheerder moet deze app nog toestemming geven.");
-                var authorization = new TailscaleKeyWindow(backend) { Owner = this };
+                var authorization = new TailscaleKeyWindow(backend, waitingForApproval: status.State == "NeedsMachineAuth") { Owner = this };
                 if (authorization.ShowDialog() != true) { _connectAndMountRequested = false; StatusText.Text = "De Tailscale-instelling is nog niet afgerond."; return; }
                 status = await Task.Run(backend.GetStatus);
             }

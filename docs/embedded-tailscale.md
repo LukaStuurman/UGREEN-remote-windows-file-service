@@ -35,6 +35,31 @@ node-keyverloop, apparaatgoedkeuring of Tailnet Lock kan nieuwe beheerderactie v
 **Instellingen → Tailscale-toestemming wissen** meldt uitsluitend de ingebouwde node af. De losse
 Windows-client en de NAS-node worden niet uitgelezen, afgemeld of gewijzigd.
 
+## Registratie, goedkeuring en verloop
+
+Vanaf v0.5.2-preview.1 start de app de registratie expliciet nadat je de sleutel
+invoert. De eerdere melding “nog niet goedgekeurd” kon ook betekenen dat de
+registratie nooit gestart was; alleen een wachttijd was dus geen bewijs van
+vereiste apparaatgoedkeuring.
+
+- Bij een echt geweigerde sleutel meldt de app dat. Een eenmalige sleutel die al
+  gebruikt, ingetrokken of verlopen is, kan niet opnieuw een apparaat toevoegen.
+- Bij een timeout is nog geen registratiebevestiging ontvangen. Sluit het venster
+  en klik opnieuw op **Via Tailscale verbinden** om de actuele toestand te controleren.
+- Alleen bij **NeedsMachineAuth** is de app geregistreerd en wacht hij op
+  goedkeuring. Open Tailscale **Machines**, zoek **ugreen-remote-drive** en kies
+  **⋯ → Approve**. Klik daarna in de app op **Goedkeuring controleren**; voer de
+  sleutel niet opnieuw in. Gebruik hiervoor een beheerder in hetzelfde netwerk.
+- De auth key heeft maximaal 90 dagen om een nieuwe node toe te voegen. Dat is
+  niet de looptijd van een eenmaal geregistreerde verbinding. Kies na registratie
+  bij de eigen **ugreen-remote-drive**-node **Disable key expiry** voor geen
+  periodiek apparaatverloop. De NAS-node heeft een afzonderlijke instelling.
+  Intrekken, wissen van de eigen identiteit en netwerkbeleid blijven van kracht.
+- Funnel deelt een specifieke dienst openbaar via HTTPS/relay; het is geen
+  rechtstreekse vervanging van de private SMB-route van deze client. De app biedt
+  geen Funnel-bestandsbackend. Publiceer de huidige API-container niet zomaar via
+  Funnel: die vertrouwt voor aanmelding op de bestaande UGREENlink-route.
+
 ## Aanmeldvensters
 
 De NAS-aanmelding over LAN en ingebouwde Tailscale gebruikt hetzelfde eigen
@@ -84,4 +109,6 @@ Tailscale-sleutels gebruikt. Dit bewijst nog geen echte tailnetregistratie of NA
 
 Bronnen: [officiële tsnet-documentatie](https://tailscale.com/docs/features/tsnet),
 [auth keys](https://tailscale.com/docs/features/access-control/auth-keys),
+[apparaatgoedkeuring](https://tailscale.com/docs/features/access-control/device-management/device-approval),
+[key expiry](https://tailscale.com/docs/features/access-control/key-expiry),
 [verbindingstypen](https://tailscale.com/docs/reference/connection-types).

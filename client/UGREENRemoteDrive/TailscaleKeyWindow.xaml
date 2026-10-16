@@ -18,6 +18,7 @@
         <TextBlock x:Name="FeedbackText" TextWrapping="Wrap" Foreground="#9B2525" Margin="0,12,0,0" AutomationProperties.LiveSetting="Polite" />
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
             <Button x:Name="CancelButton" Content="Annuleren" IsCancel="True" Padding="14,7" Margin="0,0,10,0" />
+            <Button x:Name="CheckApprovalButton" Content="Goedkeuring controleren" Visibility="Collapsed" Style="{StaticResource PrimaryButton}" Click="CheckApproval_Click" />
             <Button x:Name="AuthorizeButton" Content="Verbinding toestaan" IsDefault="True" Style="{StaticResource PrimaryButton}" Click="Authorize_Click" />
         </StackPanel>
     </StackPanel>

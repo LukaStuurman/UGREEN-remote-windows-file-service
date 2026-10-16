@@ -157,7 +157,7 @@ jobs:
       - name: Verify dependency checksums
         working-directory: embedded-tailscale
         run: go mod verify
-      - name: Test SMB over a private fixture connection without a tailnet or user data
+      - name: Test private SMB and simulated Tailscale registration without user data
         shell: bash
         run: |
           set -euo pipefail
