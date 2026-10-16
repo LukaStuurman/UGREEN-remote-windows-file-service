@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -15,7 +16,7 @@ import (
 
 	"tailscale.com/client/local"
 	"tailscale.com/ipn"
-	"tailscale.com/ipn/store/mem"
+	"tailscale.com/ipn/store"
 	"tailscale.com/net/netns"
 	"tailscale.com/tailcfg"
 	"tailscale.com/tsnet"
@@ -134,10 +135,15 @@ func TestRealTsnetRegistersNewMachineWithKeyAfterInitialNeedsLogin(t *testing.T)
 			control.HTTPTestServer = httptest.NewUnstartedServer(control)
 			control.HTTPTestServer.Start()
 			t.Cleanup(control.HTTPTestServer.Close)
-			s := &tsnet.Server{Dir: t.TempDir(), Store: new(mem.Store), ControlURL: control.HTTPTestServer.URL,
+			directory := t.TempDir()
+			state, err := store.NewFileStore(func(string, ...any) {}, filepath.Join(directory, "synthetic-test-state.json"))
+			if err != nil {
+				t.Fatal("Fixture state initialization failed")
+			}
+			s := &tsnet.Server{Dir: directory, Store: state, ControlURL: control.HTTPTestServer.URL,
 				Hostname: "ugreen-auth-fixture", Logf: func(string, ...any) {}, UserLogf: func(string, ...any) {}}
 			if err := s.Start(); err != nil {
-				t.Fatal("Fixture tsnet failed to start")
+				t.Fatalf("Fixture tsnet failed to start: %v", err)
 			}
 			t.Cleanup(func() { _ = s.Close() })
 			lc, err := s.LocalClient()
