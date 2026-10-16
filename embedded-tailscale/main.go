@@ -20,7 +20,6 @@ import (
 	"unicode/utf16"
 
 	smb "github.com/hirochachacha/go-smb2"
-	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tsnet"
 )
@@ -58,6 +57,7 @@ type entry struct {
 }
 type app struct {
 	unlockState func()
+	authMu      sync.Mutex
 	appendMu    sync.Mutex
 	mu          sync.RWMutex
 	server      *tsnet.Server
@@ -184,6 +184,10 @@ func validAuthKey(key string) bool {
 	return true
 }
 func (a *app) authorize(ctx context.Context, secret []byte) error {
+	if !a.authMu.TryLock() {
+		return authBusy
+	}
+	defer a.authMu.Unlock()
 	if len(secret) == 0 || len(secret) > 2048 || len(secret)%2 != 0 {
 		return os.ErrInvalid
 	}
@@ -200,7 +204,7 @@ func (a *app) authorize(ctx context.Context, secret []byte) error {
 	if err != nil {
 		return err
 	}
-	return lc.Start(ctx, ipn.Options{AuthKey: key})
+	return registerWithKey(ctx, lc, key)
 }
 func (a *app) connect(ctx context.Context, user string, secret []byte) error {
 	a.mu.Lock()
@@ -527,12 +531,23 @@ func (a *app) handle(r request, data []byte) (response, []byte) {
 	}
 	if err != nil {
 		reply.Status = errorStatus(err)
+		var authErr authFailure
+		if errors.As(err, &authErr) && authErr == authRejected {
+			reply.Status = 401
+		}
 		if reply.Status == 503 && r.Op != "configure" && r.Op != "status" && r.Op != "authorize" {
 			a.mu.Lock()
 			a.closeSMB()
 			a.mu.Unlock()
 		}
 		reply.Error = "De Tailscale/NAS-aanvraag is mislukt."
+		if r.Op == "authorize" {
+			if errors.As(err, &authErr) {
+				reply.Error = authErr.Error()
+			} else if errors.Is(err, os.ErrInvalid) {
+				reply.Error = "Vul een geldige Tailscale auth key in die begint met tskey-auth-."
+			}
+		}
 		output = nil
 	}
 	reply.DataLength = len(output)
