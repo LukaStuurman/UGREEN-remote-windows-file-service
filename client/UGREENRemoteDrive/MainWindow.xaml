@@ -9,7 +9,7 @@
         <Border Background="#15253A" Padding="30,22">
             <Grid>
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                <Image Source="Assets/TechbaseLogo.png" Width="212" Height="59" Stretch="Uniform" HorizontalAlignment="Left" AutomationProperties.Name="Techbase"/>
+                <Image Source="/UGREENRemoteDrive;component/Assets/TechbaseLogo.png" Width="212" Height="59" Stretch="Uniform" HorizontalAlignment="Left" AutomationProperties.Name="Techbase"/>
                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                     <TextBlock Text="REMOTE DRIVE" Foreground="White" FontWeight="SemiBold" FontSize="17" HorizontalAlignment="Right"/>
                     <TextBlock Text="Je bestanden. Binnen handbereik." Foreground="#BAC5D4" FontSize="12" Margin="0,5,0,0"/>
