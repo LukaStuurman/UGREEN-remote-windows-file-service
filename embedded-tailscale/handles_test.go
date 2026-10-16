@@ -81,6 +81,16 @@ func TestSMBHandleSaveReplaceAndIdentity(t *testing.T) {
 	replacement := open("save-fixture.tmp", 2, 0xc0010000, 7)
 	fresh := bytes.Repeat([]byte{0xf1, 0x00, 0x42, 0xff}, 40000)
 	call(request{Op: "handle-write", Handle: replacement}, fresh)
+	if a.share == nil {
+		t.Fatal("SMB session was lost before replacement")
+	}
+	inspected, inspectErr := (sharedInspector{a.share.WithContext(ctx)}).Lstat("save-fixture.dwg")
+	if inspectErr != nil {
+		t.Fatalf("Inspect replacement target: %v", inspectErr)
+	}
+	if inspected.Mode()&(os.ModeSymlink|os.ModeIrregular|os.ModeDevice|os.ModeNamedPipe|os.ModeSocket) != 0 {
+		t.Fatalf("Unexpected fixture target mode: %v", inspected.Mode())
+	}
 	call(request{Op: "handle-rename", Handle: replacement, Target: "save-fixture.dwg", Replace: true}, nil)
 	if !bytes.Equal(read(h, 0, len(data)), data) {
 		t.Fatal("Old open handle silently switched to replacement")
