@@ -15,12 +15,15 @@ import (
 	"time"
 
 	"tailscale.com/client/local"
+	"tailscale.com/derp/derpserver"
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/store"
 	"tailscale.com/net/netns"
+	"tailscale.com/net/stun"
 	"tailscale.com/tailcfg"
 	"tailscale.com/tsnet"
 	"tailscale.com/tstest/integration/testcontrol"
+	"tailscale.com/types/key"
 )
 
 const fixtureAuthKey = "tskey-auth-offline-fixture-not-a-real-auth-key"
@@ -118,6 +121,39 @@ func TestAuthFailureNeverReturnsRawControlMessages(t *testing.T) {
 	}
 }
 
+func startLocalRelay(t *testing.T) *tailcfg.DERPMap {
+	t.Helper()
+	relay := derpserver.New(key.NewNode(), func(string, ...any) {})
+	https := httptest.NewTLSServer(derpserver.Handler(relay))
+	udp, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buffer := make([]byte, 65536)
+		for {
+			count, source, err := udp.ReadFromUDPAddrPort(buffer)
+			if err != nil {
+				return
+			}
+			id, err := stun.ParseBindingRequest(buffer[:count])
+			if err == nil {
+				_, _ = udp.WriteToUDPAddrPort(stun.Response(id, source), source)
+			}
+		}
+	}()
+	t.Cleanup(func() { https.CloseClientConnections(); https.Close(); relay.Close(); _ = udp.Close(); <-done })
+	return &tailcfg.DERPMap{Regions: map[tailcfg.DERPRegionID]*tailcfg.DERPRegion{1: {
+		RegionID: 1, RegionCode: "fixture", Nodes: []*tailcfg.DERPNode{{
+			Name: "fixture", RegionID: 1, HostName: "127.0.0.1", IPv4: "127.0.0.1", IPv6: "none",
+			STUNPort: udp.LocalAddr().(*net.UDPAddr).Port, DERPPort: https.Listener.Addr().(*net.TCPAddr).Port,
+			InsecureForTests: true, STUNTestIP: "127.0.0.1",
+		}},
+	}}}
+}
+
 // Exercise the real tsnet/control-client registration exchange on disposable CI
 // runners only. All identities, state, keys and control responses are synthetic;
 // no real tailnet, user credentials, production DERP map or NAS is involved.
@@ -130,8 +166,9 @@ func TestRealTsnetRegistersNewMachineWithKeyAfterInitialNeedsLogin(t *testing.T)
 	t.Cleanup(func() { netns.SetEnabled(true) })
 	for _, mode := range []string{"running", "approval", "rejected"} {
 		t.Run(mode, func(t *testing.T) {
+			derpMap := startLocalRelay(t)
 			control := &testcontrol.Server{RequireAuthKey: fixtureAuthKey, RequireMachineAuth: mode == "approval",
-				DERPMap: &tailcfg.DERPMap{Regions: map[tailcfg.DERPRegionID]*tailcfg.DERPRegion{}}, Logf: func(string, ...any) {}}
+				DERPMap: derpMap, Logf: func(string, ...any) {}}
 			control.HTTPTestServer = httptest.NewUnstartedServer(control)
 			control.HTTPTestServer.Start()
 			t.Cleanup(control.HTTPTestServer.Close)

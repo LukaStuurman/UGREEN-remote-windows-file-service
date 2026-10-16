@@ -14,7 +14,7 @@ De eerste implementatie staat op `main` in commit `456fe4d` (`feat: add UGREENli
 
 - `v0.5.2-preview.1` herstelt registratie van een nieuwe eigen node. Alleen LocalClient.Start met AuthKey installeert een nieuwe control-client maar start voor een node zonder bewaarde node-key geen login. De private helper doet nu dezelfde expliciete StartLoginInteractive-trigger als officiële tsnet-startup, uitsluitend na de expliciet ingevoerde auth key. De naam van deze methode betekent hier geen browseraanmelding: geen browser openen, geen auth-URL, key, accountdata of rauwe notificatie naar UI/logs.
 - Helper observeert de private IPN-bus voor echte Running/NeedsMachineAuth en asynchrone fouten. Alleen vaste gesaniteerde berichten verlaten het proces. Een timeout wordt niet meer ten onrechte apparaatgoedkeuring genoemd. Alleen NeedsMachineAuth toont goedkeuringsinstructies en de knop Goedkeuring controleren; opnieuw verbinden in die toestand vraagt geen nieuwe sleutel.
-- Tests: lokale nagebootste LocalAPI controleert de ontbrekende login-trigger, succes, approval, geweigerde sleutel, timeout en geen geheim in fouten. CI draait bovendien echte tsnet tegen Tailscales lokale in-memory testcontrol met synthetische sleutel/state, lege DERP-map en geen echte tailnet/NAS. Dit vervangt geen live NAS-/gebruikersregistratietest.
+- Tests: lokale nagebootste LocalAPI controleert de ontbrekende login-trigger, succes, approval, geweigerde sleutel, timeout en geen geheim in fouten. CI draait bovendien echte tsnet tegen Tailscales lokale in-memory testcontrol met synthetische sleutel/state, lokale DERP/STUN en geen echte tailnet/NAS. Dit vervangt geen live NAS-/gebruikersregistratietest.
 
 ### Techbase-vormgeving — 2026-10-16
 
