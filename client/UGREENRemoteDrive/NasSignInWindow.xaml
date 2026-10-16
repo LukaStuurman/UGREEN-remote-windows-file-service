@@ -1,24 +1,30 @@
 <Window x:Class="UGREENRemoteDrive.NasSignInWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Aanmelden bij je NAS" Width="470" SizeToContent="Height"
+        Style="{StaticResource {x:Type Window}}"
+        Title="Techbase | Aanmelden bij je NAS" Width="510" SizeToContent="Height"
         ResizeMode="NoResize" WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
-    <StackPanel Margin="24">
+    <DockPanel>
+    <ContentControl DockPanel.Dock="Top" Content="Remote Drive" ContentTemplate="{StaticResource PopupBrandHeader}" />
+    <Border Style="{StaticResource Card}" Margin="20">
+    <StackPanel>
         <TextBlock Text="Aanmelden bij je NAS" FontSize="22" FontWeight="SemiBold" />
         <TextBlock Text="Gebruik je lokale UGOS-gebruikersnaam en wachtwoord met toegang tot Techbase."
                    TextWrapping="Wrap" Foreground="#555" Margin="0,8,0,8" />
         <TextBlock x:Name="ShareText" TextWrapping="Wrap" Margin="0,0,0,16" />
         <TextBlock Text="NAS-gebruikersnaam" />
-        <TextBox x:Name="UserNameBox" Height="32" Margin="0,4,0,12" VerticalContentAlignment="Center" MaxLength="513" />
+        <TextBox x:Name="UserNameBox" Margin="0,4,0,12" VerticalContentAlignment="Center" MaxLength="513" AutomationProperties.Name="NAS-gebruikersnaam" />
         <TextBlock Text="Wachtwoord" />
-        <PasswordBox x:Name="SecretBox" Height="32" Margin="0,4,0,12" VerticalContentAlignment="Center" MaxLength="1280" />
+        <PasswordBox x:Name="SecretBox" Margin="0,4,0,12" VerticalContentAlignment="Center" MaxLength="1280" AutomationProperties.Name="NAS-wachtwoord" />
         <CheckBox x:Name="RememberBox" Content="Aanmelding op deze computer onthouden" />
-        <TextBlock Text="Windows bewaart dit voor deze app en deze share. Je kunt dit venster gebruiken op het LAN of met een actieve WireGuard-verbinding."
+        <TextBlock Text="Windows bewaart dit voor deze app en deze share. Dit werkt op je lokale netwerk en via ingebouwde Tailscale."
                    TextWrapping="Wrap" FontSize="11" Foreground="#666" Margin="0,6,0,0" />
         <TextBlock x:Name="FeedbackText" Foreground="#9B2525" TextWrapping="Wrap" Margin="0,12,0,4" AutomationProperties.LiveSetting="Polite" />
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
             <Button x:Name="CancelButton" Content="Annuleren" IsCancel="True" Padding="14,7" Margin="0,0,10,0" />
-            <Button x:Name="SignInButton" Content="Aanmelden" IsDefault="True" Padding="14,7" Click="SignIn_Click" />
+            <Button x:Name="SignInButton" Content="Aanmelden" IsDefault="True" Style="{StaticResource PrimaryButton}" Click="SignIn_Click" />
         </StackPanel>
     </StackPanel>
+    </Border>
+    </DockPanel>
 </Window>
