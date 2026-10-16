@@ -59,6 +59,8 @@ public partial class MainWindow : Window
     private readonly HashSet<string> _savedSmbSignInAttempted = new(StringComparer.OrdinalIgnoreCase);
     private bool _nativeSignInActive;
     private bool _connectionActionInProgress;
+    private EmbeddedTailscaleBackend? _embeddedTailscale;
+    private Window? _ugreenLoginWindow;
 
     public MainWindow()
     {
@@ -80,6 +82,7 @@ public partial class MainWindow : Window
         _settings = SettingsStore.Load();
         RemoteUrlBox.Text = string.IsNullOrWhiteSpace(_settings.RemoteUrl) ? _settings.NasPortalUrl : _settings.RemoteUrl;
         SmbPathBox.Text = _settings.SmbPath;
+        TailscaleHostBox.Text = _settings.TailscaleHost;
         if (DriveLetterBox.Items.Contains(_settings.DriveLetter)) DriveLetterBox.SelectedItem = _settings.DriveLetter;
         StartupBox.IsChecked = _settings.AutoStart;
         RememberLoginBox.IsChecked = _settings.RememberLogin;
@@ -87,7 +90,7 @@ public partial class MainWindow : Window
         ShortcutTileNameBox.Text = _settings.ShortcutTileName;
         _connectAndMountRequested = _settings.AutoOpenShortcut &&
             (!string.IsNullOrWhiteSpace(_settings.RemoteUrl) || !string.IsNullOrWhiteSpace(_settings.NasPortalUrl) ||
-             !string.IsNullOrWhiteSpace(_settings.SmbPath));
+             !string.IsNullOrWhiteSpace(_settings.SmbPath) || !string.IsNullOrWhiteSpace(_settings.TailscaleHost));
         try
         {
             Directory.CreateDirectory(SettingsStore.AppDirectory);
@@ -109,6 +112,7 @@ public partial class MainWindow : Window
             Browser.CoreWebView2.WebResourceResponseReceived += Browser_WebResourceResponseReceived;
             Browser.CoreWebView2.SourceChanged += Browser_SourceChanged;
             Browser.CoreWebView2.WebMessageReceived += Browser_DesktopSelectionReceived;
+            CreateUgreenLoginPopup();
         }
         catch (Exception ex)
         {
@@ -129,6 +133,10 @@ public partial class MainWindow : Window
         {
             StatusText.Text = "De lokale Techbase-share is bereikbaar. Klik op Verbinden om de schijf te openen.";
         }
+        else if (_connectAndMountRequested && !string.IsNullOrWhiteSpace(_settings.TailscaleHost))
+        {
+            await ConnectEmbeddedTailscaleAsync();
+        }
         else if (_connectAndMountRequested && !string.IsNullOrWhiteSpace(_settings.SmbPath) &&
                  await SmbSignInService.CanContactServerAsync(_settings.SmbPath))
         {
@@ -146,7 +154,7 @@ public partial class MainWindow : Window
         }
         _statusTimer.Start();
         SetConfigurationControlsEnabled(_dokanInstance is null);
-        if (!_shortcutDiscoveryActive && Environment.GetCommandLineArgs().Contains("--minimized", StringComparer.OrdinalIgnoreCase)) Hide();
+        if (!_shortcutDiscoveryActive && _ugreenLoginWindow?.IsVisible != true && Environment.GetCommandLineArgs().Contains("--minimized", StringComparer.OrdinalIgnoreCase)) Hide();
     }
 
     private void Browser_SourceChanged(object? sender, CoreWebView2SourceChangedEventArgs e)
@@ -687,7 +695,7 @@ public partial class MainWindow : Window
         }
         if (_activePage == BrowserPage.Login)
         {
-            if (!_nativeSignInActive && _mountedBackend is not SmbBackend) ShowRemoteBrowser(true);
+            if (!_nativeSignInActive && _mountedBackend is not (SmbBackend or EmbeddedTailscaleBackend)) ShowRemoteBrowser(true);
             DriveLog.Info($"Top-level navigation completed: page=recognized-ugreen-login, success={e.IsSuccess}, webError={e.WebErrorStatus}.");
             if (!TryStartAutomaticTileOpen())
             {
@@ -752,7 +760,7 @@ public partial class MainWindow : Window
             }
             if (completedPage == BrowserPage.Login && _activePage == BrowserPage.Login)
             {
-                if (!_nativeSignInActive && _mountedBackend is not SmbBackend) ShowRemoteBrowser(true);
+                if (!_nativeSignInActive && _mountedBackend is not (SmbBackend or EmbeddedTailscaleBackend)) ShowRemoteBrowser(true);
                 if (!TryStartAutomaticTileOpen())
                     StatusText.Text = navigationSucceeded
                         ? "Meld aan in dit appvenster en klik zo nodig op de Remote Drive-tegel op het UGREENlink-bureaublad."
@@ -1019,7 +1027,13 @@ public partial class MainWindow : Window
             _connectAndMountRequested = true;
             _autoMountAttempted = false;
             SaveSettingsFromForm(navigateToRemote: false);
+            if (trySmb) { _backends = null; RebuildBackends(); }
             if (trySmb && await TryMountFromSmbAsync(restoreSavedSignIn: true)) return;
+            if (trySmb && !string.IsNullOrWhiteSpace(_settings.TailscaleHost))
+            {
+                await ConnectEmbeddedTailscaleAsync();
+                return;
+            }
             if (trySmb && !string.IsNullOrWhiteSpace(_settings.SmbPath) &&
                 await SmbSignInService.CanContactServerAsync(_settings.SmbPath))
             {
@@ -1205,6 +1219,7 @@ public partial class MainWindow : Window
 
     private async Task RefreshStatusAsync()
     {
+        if (_nativeSignInActive || _mountedBackend is SmbBackend or EmbeddedTailscaleBackend) { UpdateBackendText(); return; }
         if (_backends is not null)
             _ = _backends.ProbeSmbAsync(useRecentResult: true);
 
@@ -1297,7 +1312,9 @@ public partial class MainWindow : Window
             throw new InvalidOperationException("Ontkoppel de schijf voordat je instellingen wijzigt.");
         var urlText = RemoteUrlBox.Text.Trim();
         var smbPath = SmbPathBox.Text.Trim();
-        var setupTarget = UgreenLinkSetupAddress.ParseConnection(urlText, smbPath);
+        var tailHost = string.IsNullOrWhiteSpace(TailscaleHostBox.Text) ? "" : EmbeddedTailscaleBackend.ValidateHost(TailscaleHostBox.Text);
+        var setupTarget = UgreenLinkSetupAddress.ParseConnection(urlText,
+            string.IsNullOrWhiteSpace(smbPath) && tailHost.Length > 0 ? @"\\" + tailHost + @"\Techbase" : smbPath);
         var drive = DriveLetterBox.SelectedItem as string;
         if (string.IsNullOrWhiteSpace(drive)) throw new InvalidOperationException("Kies een driveletter.");
         var tileName = ShortcutTileNameBox.Text.Trim();
@@ -1313,6 +1330,7 @@ public partial class MainWindow : Window
             NasPortalUrl = setupTarget?.Kind == UgreenLinkSetupKind.NasPortal ? setupTarget.Address.AbsoluteUri :
                 sameShortcut ? _settings.NasPortalUrl : "",
             SmbPath = smbPath,
+            TailscaleHost = tailHost,
             DriveLetter = drive,
             AutoStart = StartupBox.IsChecked == true,
             RememberLogin = RememberLoginBox.IsChecked == true,
@@ -1399,7 +1417,103 @@ public partial class MainWindow : Window
     private void ShowRemoteBrowser(bool visible)
     {
         BrowserHost.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-        DirectConnectionPanel.Visibility = visible ? Visibility.Collapsed : Visibility.Visible;
+        if (_ugreenLoginWindow is null) return;
+        if (visible) { if (!_ugreenLoginWindow.IsVisible) _ugreenLoginWindow.Show(); _ugreenLoginWindow.Activate(); }
+        else _ugreenLoginWindow.Hide();
+    }
+
+    private void CreateUgreenLoginPopup()
+    {
+        if (_ugreenLoginWindow is not null) return;
+        if (BrowserHost.Parent is System.Windows.Controls.Panel parent) parent.Children.Remove(BrowserHost);
+        _ugreenLoginWindow = new Window
+        {
+            Title = "Aanmelden bij UGREENlink", Owner = this, Width = 850, Height = 650,
+            MinWidth = 650, MinHeight = 450, WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ShowInTaskbar = false, Content = BrowserHost
+        };
+        _ugreenLoginWindow.Closing += (_, e) => { if (!_exitRequested) { e.Cancel = true; _ugreenLoginWindow.Hide(); } };
+    }
+
+    private async void ConnectTailscaleButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_nativeSignInActive || _connectionActionInProgress || _dokanInstance is not null) return;
+        try { SaveSettingsFromForm(navigateToRemote: false); await ConnectEmbeddedTailscaleAsync(); }
+        catch (Exception ex) { StatusText.Text = ex.Message; }
+    }
+
+    private async Task ConnectEmbeddedTailscaleAsync()
+    {
+        if (_nativeSignInActive || _dokanInstance is not null) return;
+        _nativeSignInActive = true;
+        SetConfigurationControlsEnabled(false);
+        ShowRemoteBrowser(false);
+        try
+        {
+            var host = EmbeddedTailscaleBackend.ValidateHost(_settings.TailscaleHost);
+            if (_embeddedTailscale?.Host != host || !_embeddedTailscale.IsRunning)
+            {
+                _embeddedTailscale?.Dispose(); _embeddedTailscale = null;
+                StatusText.Text = "Ingebouwde Tailscale-verbinding starten…";
+                _embeddedTailscale = await Task.Run(() => new EmbeddedTailscaleBackend(host));
+            }
+            var backend = _embeddedTailscale;
+            var status = await Task.Run(backend.GetStatus);
+            for (var attempt = 0; attempt < 10 && status.State is "NoState" or "Starting"; attempt++)
+            {
+                await Task.Delay(500); status = await Task.Run(backend.GetStatus);
+            }
+            if (status.State != "Running")
+            {
+                if (status.State == "NeedsMachineAuth") throw new InvalidOperationException("De Tailscale-beheerder moet deze app nog toestemming geven.");
+                var authorization = new TailscaleKeyWindow(backend) { Owner = this };
+                if (authorization.ShowDialog() != true) { _connectAndMountRequested = false; StatusText.Text = "De Tailscale-instelling is nog niet afgerond."; return; }
+                status = await Task.Run(backend.GetStatus);
+            }
+            if (!status.Ready) throw new InvalidOperationException("Tailscale is verbonden, maar de ingestelde NAS is niet zichtbaar. Controleer de NAS-naam en toegangsregels in het juiste Tailscale-netwerk.");
+            var signIn = new SmbSignInService(new WindowsSmbCredentialStore(), backend);
+            if (!backend.IsAuthenticated && _savedSmbSignInAttempted.Add(backend.ShareRoot))
+            {
+                try { await Task.Run(() => signIn.Restore(backend.ShareRoot)); }
+                catch { StatusText.Text = "De NAS-aanmelding kon niet worden hersteld. Meld aan in de pop-up."; }
+            }
+            string? warning = null;
+            if (!backend.IsAuthenticated)
+            {
+                var dialog = new NasSignInWindow(backend.ShareRoot, signIn) { Owner = this };
+                if (dialog.ShowDialog() != true) { _connectAndMountRequested = false; StatusText.Text = "NAS-aanmelding geannuleerd."; return; }
+                warning = dialog.SaveWarning;
+            }
+            _backends = new BackendSelector(_remote!, backend, () => _remote?.IsAuthenticated == true, () => backend.IsAuthenticated);
+            _backendSmbPath = _settings.SmbPath;
+            await MountDriveAsync(); _connectAndMountRequested = false;
+            try { status = await Task.Run(backend.GetStatus); } catch { status = status with { ConnectionType = "unknown" }; }
+            var route = status.ConnectionType switch { "direct" => "rechtstreeks", "relay" => "via Tailscale-relay", "peer-relay" => "via peer-relay", _ => "route nog niet vastgesteld" };
+            StatusText.Text += " Tailscale: " + route + ".";
+            if (warning is not null) StatusText.Text += " " + warning;
+        }
+        catch (Exception ex)
+        {
+            _connectAndMountRequested = false;
+            StatusText.Text = ex is DriveApiException ? "De ingebouwde Tailscale/NAS-verbinding kon niet worden afgerond. Controleer de toestemming en SMB op de NAS." : ex.Message;
+            DriveLog.Error("Embedded Tailscale connection failed: " + ex.GetType().Name);
+        }
+        finally { _nativeSignInActive = false; SetConfigurationControlsEnabled(_dokanInstance is null); }
+    }
+
+    private async void ForgetTailscaleButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_nativeSignInActive || _connectionActionInProgress || _dokanInstance is not null) return;
+        _nativeSignInActive = true; SetConfigurationControlsEnabled(false);
+        try
+        {
+            if (_embeddedTailscale is null) _embeddedTailscale = await Task.Run(() => new EmbeddedTailscaleBackend(EmbeddedTailscaleBackend.ValidateHost(_settings.TailscaleHost)));
+            await Task.Run(_embeddedTailscale.Logout);
+            _embeddedTailscale.Dispose(); _embeddedTailscale = null;
+            StatusText.Text = "De eigen Tailscale-toestemming van deze app is ingetrokken. Andere Tailscale-apps en je NAS zijn niet gewijzigd.";
+        }
+        catch { StatusText.Text = "De Tailscale-toestemming kon niet worden gewist. Controleer de verbinding en probeer opnieuw."; }
+        finally { _nativeSignInActive = false; SetConfigurationControlsEnabled(true); }
     }
 
     private async void SmbSignInButton_Click(object sender, RoutedEventArgs e)
@@ -1458,6 +1572,9 @@ public partial class MainWindow : Window
     {
         RemoteUrlBox.IsEnabled = enabled;
         SmbPathBox.IsEnabled = enabled;
+        TailscaleHostBox.IsEnabled = enabled;
+        ConnectTailscaleButton.IsEnabled = enabled;
+        ForgetTailscaleButton.IsEnabled = enabled;
         SmbSignInButton.IsEnabled = enabled;
         ForgetSmbButton.IsEnabled = enabled;
         DriveLetterBox.IsEnabled = enabled;
@@ -1532,7 +1649,9 @@ public partial class MainWindow : Window
         _trayIcon.Visible = false;
         _trayIcon.Dispose();
         Browser.Dispose();
+        _embeddedTailscale?.Dispose();
         _exitRequested = true;
+        _ugreenLoginWindow?.Close();
         Close();
     }
 

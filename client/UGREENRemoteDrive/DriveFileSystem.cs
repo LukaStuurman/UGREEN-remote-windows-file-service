@@ -16,7 +16,7 @@ internal sealed class DriveFileSystem : IDokanOperations
     internal DriveFileSystem(IFileBackend backend) => _backend = backend;
 
     private IFileBackend Backend => _backend;
-    internal string BackendKind => Backend is SmbBackend smb ? smb.ConnectionName : Backend is RemoteBackend ? "UGREENlink" : "injected";
+    internal string BackendKind => Backend is EmbeddedTailscaleBackend ? "Ingebouwde Tailscale-SMB" : Backend is SmbBackend smb ? smb.ConnectionName : Backend is RemoteBackend ? "UGREENlink" : "injected";
 
     private FileEntry Stat(string path) => _metadata.GetStat(path, () => Backend.Stat(path));
 

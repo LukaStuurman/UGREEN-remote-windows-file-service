@@ -51,6 +51,16 @@ public sealed class NativeTransportTests
         source.RootVisual = view;
         var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: profile);
         await view.EnsureCoreWebView2Async(environment);
+        // Reparent the authenticated view into a separate popup, then hide it,
+        // exactly as the app does when its inline browser is removed.
+        source.RootVisual = null;
+        var popup = new System.Windows.Window
+        {
+            Content = view, Width = 300, Height = 200, Opacity = 0,
+            ShowActivated = false, ShowInTaskbar = false
+        };
+        popup.Show();
+        popup.Hide();
         var core = view.CoreWebView2;
         var fixture = Enumerable.Range(0, BinaryTransfer.MaximumLength).Select(i => (byte)(i % 251)).ToArray();
         byte[]? uploaded = null;
@@ -126,6 +136,7 @@ public sealed class NativeTransportTests
             // CI deletes the disposable runner/profile after this job. Release
             // native views now; no installation or user browser state is touched.
             view.Dispose();
+            popup.Close();
             foreach (var stream in streams) stream.Dispose();
         }
     }

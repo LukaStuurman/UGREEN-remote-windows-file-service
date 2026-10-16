@@ -385,7 +385,7 @@ internal sealed class BackendSelector
     }
 
     public string Describe(IFileBackend backend) =>
-        ReferenceEquals(backend, Smb) ? (Smb as SmbBackend)?.ConnectionName ?? "LAN-SMB"
+        ReferenceEquals(backend, Smb) ? (Smb is EmbeddedTailscaleBackend ? "Ingebouwde Tailscale-SMB" : (Smb as SmbBackend)?.ConnectionName ?? "LAN-SMB")
             : ReferenceEquals(backend, Remote) ? "UGREENlink" : "onbekend";
 
     public async Task ProbeSmbAsync(bool useRecentResult = false)
