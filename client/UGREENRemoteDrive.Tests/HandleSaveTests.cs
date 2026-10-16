@@ -1,5 +1,6 @@
 using DokanNet;
 using DokanNet.Logging;
+using System.IO.MemoryMappedFiles;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using UGREENRemoteDrive;
 
@@ -128,6 +129,16 @@ public sealed class HandleSaveTests
                 file.Write([0xf1, 0xff, 0x00]);
                 expected[13] = 0xf1; expected[14] = 0xff; expected[15] = 0;
                 file.Flush(flushToDisk: true);
+            }
+            // CAD applications may update headers through memory-mapped I/O;
+            // this also exercises the driver's cached/paging callbacks.
+            using (var mapping = MemoryMappedFile.CreateFromFile(temporary, FileMode.Open))
+            using (var view = mapping.CreateViewAccessor())
+            {
+                var header = new byte[] { 0x41, 0x43, 0x31, 0x30, 0x33, 0x32 };
+                view.WriteArray(0, header, 0, header.Length);
+                header.CopyTo(expected, 0);
+                view.Flush();
             }
             File.Move(path, backup);
             File.Move(temporary, path, overwrite: true);
