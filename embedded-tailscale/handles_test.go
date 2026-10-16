@@ -30,12 +30,11 @@ func TestSMBHandleSaveReplaceAndIdentity(t *testing.T) {
 	defer a.closeSMB()
 	call := func(r request, b []byte) response {
 		t.Helper()
-		r.ID = 1
-		reply, _ := a.handle(r, b)
-		if reply.Status != 200 {
-			t.Fatalf("%s returned %d", r.Op, reply.Status)
+		value, _, err := a.handleFile(ctx, r, b)
+		if err != nil {
+			t.Fatalf("%s returned %d: %v", r.Op, errorStatus(err), err)
 		}
-		return reply
+		return response{Status: 200, Value: value}
 	}
 	open := func(path string, mode, access, sharing uint32) uint64 {
 		t.Helper()

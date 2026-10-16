@@ -20,6 +20,10 @@ type openFile struct {
 	failure       error
 }
 
+type sharedInspector struct{ *smb.Share }
+
+func (s sharedInspector) Lstat(name string) (os.FileInfo, error) { return s.Share.Inspect(name) }
+
 func (a *app) handleFile(ctx context.Context, r request, data []byte) (any, []byte, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -38,7 +42,7 @@ func (a *app) handleFile(ctx context.Context, r request, data []byte) (any, []by
 		if r.Disposition > 5 || r.Sharing & ^uint32(7) != 0 {
 			return nil, nil, os.ErrInvalid
 		}
-		share := a.share.WithContext(ctx)
+		share := sharedInspector{a.share.WithContext(ctx)}
 		if err = guard(share, path, r.Disposition != 1 && r.Disposition != 4); err != nil {
 			return nil, nil, err
 		}
@@ -169,7 +173,7 @@ func (a *app) handleFile(ctx context.Context, r request, data []byte) (any, []by
 		if err != nil {
 			return nil, nil, err
 		}
-		if err = guard(a.share.WithContext(ctx), target, true); err != nil {
+		if err = guard(sharedInspector{a.share.WithContext(ctx)}, target, true); err != nil {
 			return nil, nil, err
 		}
 		return nil, nil, h.file.RenameTo(target, r.Replace)

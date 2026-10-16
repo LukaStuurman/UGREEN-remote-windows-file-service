@@ -21,6 +21,22 @@ func (fs *Share) OpenHandle(name string, access, share, disposition, options, at
 		FileAttributes: attributes, ImpersonationLevel: Impersonation}, false)
 }
 
+// Inspect opens only for attributes and shares delete as well as read/write.
+// The upstream Lstat omits FILE_SHARE_DELETE, so it cannot inspect a target
+// while a retained rename/delete-capable handle is open on that target.
+func (fs *Share) Inspect(name string) (os.FileInfo, error) {
+	f, err := fs.OpenHandle(name, FILE_READ_ATTRIBUTES,
+		FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE, FILE_OPEN, 0, FILE_ATTRIBUTE_NORMAL)
+	if err != nil {
+		return nil, err
+	}
+	info := f.fileStat
+	if err = f.Close(); err != nil {
+		return nil, err
+	}
+	return info, nil
+}
+
 // SetContext updates only this file's share view, never the session or other files.
 func (f *File) SetContext(ctx context.Context) { f.fs = f.fs.WithContext(ctx) }
 

@@ -354,7 +354,7 @@ func (a *app) fileOp(ctx context.Context, r request, data []byte) (any, []byte, 
 		a.appendMu.Lock()
 		defer a.appendMu.Unlock()
 	}
-	share := a.share.WithContext(ctx)
+	share := sharedInspector{a.share.WithContext(ctx)}
 	path, err := safePath(r.Path, r.Op == "stat" || r.Op == "list" || r.Op == "space")
 	if err != nil {
 		return nil, nil, err
