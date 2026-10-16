@@ -10,6 +10,11 @@ De eerste implementatie staat op `main` in commit `456fe4d` (`feat: add UGREENli
 
 ## Huidige status — 2026-09-27
 
+### Transparant Techbase-icoon — 2026-10-16
+
+- `v0.6.1-preview.1` exporteert het oorspronkelijke beeldmerk als één donkeroranje kleur `#FF5A00` met transparante achtergrond. App-, venster-, systeemvak- en installericoon verwijzen naar dezelfde ICO. Oorspronkelijk koplogo blijft intact.
+- `Assets/Build-Icon.ps1` maakt negen echte RGBA-PNG-frames (16–256 px) in ICO en een PNG-preview uit het originele logomasker. Geen Icon.Save-quantisatie/opaak palet. Alleen RGB wordt vastgezet; de originele outline/alpha wordt bij schalen behouden. Kleur, alpha, Windows-decodering en compilatie controleren; geen NAS-/profielwijziging of lokale driverinstallatie nodig.
+
 ### Tailscale-bestandsintegriteit — 2026-10-16
 
 - `v0.6.0-preview.1` corrigeert alleen de ingebouwde Tailscale-bestandsroute. Gebruiker meldt verbinding maar corrupte AutoCAD-DWG bij rechtstreeks DXF→DWG opslaan; lokaal, SMB en UGREENlink slagen. Screenshot meldt 57643 fouten. De exacte oorzaak van die concrete tekening is niet onafhankelijk vastgesteld; tekeningen/NAS blijven onaangeraakt.
