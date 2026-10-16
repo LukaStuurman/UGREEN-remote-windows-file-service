@@ -76,8 +76,8 @@ func TestSMBHandleSaveReplaceAndIdentity(t *testing.T) {
 	if got := read(h, int64(len(data)), 1); len(got) != 0 {
 		t.Fatal("Allocation extended logical EOF")
 	}
-	// Keep original target open while replacing it: that handle must still refer
-	// to the old object, never read/write/delete the new file at the same path.
+	// SMB FileRenameInformation refuses replacing an open target (MS-FSCC
+	// 2.4.42). Preserve that server error; never pre-delete or fake success.
 	replacement := open("save-fixture.tmp", 2, 0xc0010000, 7)
 	fresh := bytes.Repeat([]byte{0xf1, 0x00, 0x42, 0xff}, 40000)
 	call(request{Op: "handle-write", Handle: replacement}, fresh)
@@ -91,10 +91,17 @@ func TestSMBHandleSaveReplaceAndIdentity(t *testing.T) {
 	if inspected.Mode()&(os.ModeSymlink|os.ModeIrregular|os.ModeDevice|os.ModeNamedPipe|os.ModeSocket) != 0 {
 		t.Fatalf("Unexpected fixture target mode: %v", inspected.Mode())
 	}
-	call(request{Op: "handle-rename", Handle: replacement, Target: "save-fixture.dwg", Replace: true}, nil)
-	if !bytes.Equal(read(h, 0, len(data)), data) {
-		t.Fatal("Old open handle silently switched to replacement")
+	deniedReplace, _ := a.handle(request{ID: 1, Op: "handle-rename", Handle: replacement, Target: "save-fixture.dwg", Replace: true}, nil)
+	if deniedReplace.Status != 403 {
+		t.Fatalf("Open destination replacement returned %d", deniedReplace.Status)
 	}
+	if !bytes.Equal(read(h, 0, len(data)), data) {
+		t.Fatal("Refused replacement damaged original")
+	}
+	// CAD's backup sequence renames the original first. The still-open old
+	// handle must keep that object when the original pathname is reused.
+	call(request{Op: "handle-rename", Handle: h, Target: "save-fixture.bak"}, nil)
+	call(request{Op: "handle-rename", Handle: replacement, Target: "save-fixture.dwg", Replace: true}, nil)
 	call(request{Op: "handle-delete", Handle: h}, nil)
 	call(request{Op: "handle-close", Handle: h}, nil)
 	check := open("save-fixture.dwg", 1, 0x80000000, 7)
@@ -102,6 +109,15 @@ func TestSMBHandleSaveReplaceAndIdentity(t *testing.T) {
 		t.Fatal("Closing/deleting old file damaged replacement")
 	}
 	call(request{Op: "handle-close", Handle: check}, nil)
+	// Also require a genuine atomic replace-existing with a closed destination.
+	call(request{Op: "handle-rename", Handle: replacement, Target: "save-fixture.tmp"}, nil)
+	closedTarget := open("save-fixture.dwg", 2, 0xc0010000, 7)
+	call(request{Op: "handle-write", Handle: closedTarget}, []byte{1, 2, 3})
+	call(request{Op: "handle-close", Handle: closedTarget}, nil)
+	call(request{Op: "handle-rename", Handle: replacement, Target: "save-fixture.dwg", Replace: true}, nil)
+	if !bytes.Equal(read(replacement, 0, len(fresh)), fresh) {
+		t.Fatal("Atomic replace-existing changed saved content")
+	}
 	// Metadata changes also follow the file ID after rename.
 	modified := time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC)
 	call(request{Op: "handle-times", Handle: replacement, Modified: modified}, nil)

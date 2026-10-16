@@ -30,6 +30,7 @@ public sealed class HandleSaveTests
         Assert.AreEqual(DokanResult.Success, fs.WriteFile("\\save.tmp", bytes[1048576..], out _, 1048576, next));
         Assert.AreEqual(DokanResult.Success, fs.WriteFile("\\save.tmp", bytes[..1048576], out _, 0, next));
         Assert.AreEqual(DokanResult.Success, fs.FlushFileBuffers("\\save.tmp", next));
+        Assert.AreEqual(DokanResult.Success, fs.MoveFile("\\drawing.dwg", "\\drawing.bak", false, old));
         Assert.AreEqual(DokanResult.Success, fs.MoveFile("\\save.tmp", "\\drawing.dwg", true, next));
         Assert.AreEqual(DokanResult.Success, fs.DeleteFile("\\drawing.dwg", old));
         fs.Cleanup("\\drawing.dwg", old);
@@ -144,9 +145,11 @@ public sealed class HandleSaveTests
             File.Move(temporary, path, overwrite: true);
             CollectionAssert.AreEqual(expected, File.ReadAllBytes(path), "Native saved bytes changed.");
             CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, File.ReadAllBytes(backup));
-            // Exercise atomic replace-existing with the old target still open.
+            // Keep the old object open through a CAD-style backup/path reuse.
+            var retainedBackup = Path.Combine(root, "retained.bak");
             using (var old = new FileStream(path, FileMode.Open, System.IO.FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
             {
+                File.Move(path, retainedBackup);
                 File.WriteAllBytes(temporary, [4, 5, 6, 7]);
                 File.Move(temporary, path, overwrite: true);
                 var retained = new byte[expected.Length];
@@ -154,7 +157,11 @@ public sealed class HandleSaveTests
                 CollectionAssert.AreEqual(expected, retained);
             }
             CollectionAssert.AreEqual(new byte[] { 4, 5, 6, 7 }, File.ReadAllBytes(path));
-            File.Delete(path); File.Delete(backup);
+            // A true replace-existing, after the target's handles are closed.
+            File.WriteAllBytes(temporary, [8, 9]);
+            File.Move(temporary, path, overwrite: true);
+            CollectionAssert.AreEqual(new byte[] { 8, 9 }, File.ReadAllBytes(path));
+            File.Delete(path); File.Delete(backup); File.Delete(retainedBackup);
         }
         finally { dokan.RemoveMountPoint(root); }
     }
@@ -169,7 +176,7 @@ internal sealed class HandleFixture : IFileBackend, IHandleFileBackend
     public bool FailFlush, FailOpen;
     public int Closed;
     public (DokanNet.FileAccess, FileShare, FileMode, FileOptions, FileAttributes) Flags;
-    private sealed class Node { public byte[] Data = []; public bool Directory; public DateTimeOffset Modified = DateTimeOffset.UnixEpoch; }
+    private sealed class Node { public byte[] Data = []; public bool Directory; public int OpenCount; public DateTimeOffset Modified = DateTimeOffset.UnixEpoch; }
     private static string Key(string p) => p.Trim('\\', '/').Replace('/', '\\');
     public byte[] Bytes(string p) { lock (_gate) return _files[Key(p)].Data.ToArray(); }
     private static FileEntry Entry(string p, Node n) => new(Path.GetFileName(p), n.Directory, n.Data.Length, DateTimeOffset.UnixEpoch, n.Modified);
@@ -194,6 +201,7 @@ internal sealed class HandleFixture : IFileBackend, IHandleFileBackend
             node ??= new Node { Directory = directory };
             if (mode is FileMode.Create or FileMode.Truncate) node.Data = [];
             _files[key] = node;
+            node.OpenCount++;
             return new Handle(this, key, node, existed);
         }
     }
@@ -222,6 +230,8 @@ internal sealed class HandleFixture : IFileBackend, IHandleFileBackend
             {
                 target = Key(target);
                 if (!replace && owner._files.ContainsKey(target)) throw new DriveApiException(409, "exists");
+                if (replace && owner._files.TryGetValue(target, out var destination) && destination.OpenCount > 0)
+                    throw new DriveApiException(403, "open target");
                 if (owner._files.TryGetValue(key, out var old) && ReferenceEquals(old, node)) owner._files.Remove(key);
                 owner._files[target] = node; key = target;
             }
@@ -235,7 +245,7 @@ internal sealed class HandleFixture : IFileBackend, IHandleFileBackend
             {
                 if (_closed) return;
                 if (_delete && owner._files.TryGetValue(key, out var current) && ReferenceEquals(current, node)) owner._files.Remove(key);
-                _closed = true; owner.Closed++;
+                _closed = true; node.OpenCount--; owner.Closed++;
             }
         }
     }

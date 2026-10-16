@@ -93,6 +93,9 @@ ticketcontroles blijven gelden. WebView2 Runtime blijft vereist voor deze terugv
   gebruiken dat bestand, ook als hetzelfde pad intussen naar een ander bestand wijst.
   Toegangs- en deelrechten worden naar SMB doorgegeven. Vervangen gebruikt één
   server-side rename; de app verwijdert het bestaande doel niet vooraf.
+  Een nog geopend doel kan vervanging blokkeren; die serverfout blijft gelden.
+  De CAD-backupvolgorde (oud bestand hernoemen, nieuw bestand plaatsen) behoudt
+  de oude bestandsreferentie. Zie [Microsofts SMB-specificatie](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/1d2673a8-8fb9-4868-920a-775ccaa30cf8).
 - Schrijven en groottewijzigingen krijgen pas succes na een bevestigde SMB-flush.
   FlushFileBuffers doet een echte flush. Allocatie vergroot de logische lengte niet;
   verkleinen en paging-writes respecteren EOF. Geen pad-readcache op open handles.

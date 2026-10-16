@@ -7,6 +7,6 @@ Upstream: https://github.com/hirochachacha/go-smb2/tree/v1.1.0
 
 Only `remote_drive_handles.go` is added: access/share-aware opens, per-operation
 context, rename with server-side replacement by file ID, delete disposition and
-allocation size. No existing upstream source is modified. These operations let
+allocation size, attributes/times and delete-sharing metadata inspection. No existing upstream source is modified. These operations let
 the caller retain SMB handles across Windows file callbacks. Replacement never
 deletes the destination first. Tests exercise these operations against Samba.
