@@ -2,6 +2,39 @@
 
 This is a separate edition of UGREEN Remote Drive that connects Windows directly to the existing NAS SMB share using the operating system's SMB redirector. It does not use or install Dokany and it does not require the separate Windows Tailscale app.
 
+## Portable single EXE (no installer)
+
+**UGREENRemoteDrive-Portable.exe** is one standalone Windows x64 application containing its own
+.NET runtime, upstream Tailscale CLI/daemon and official Wintun DLL inside the EXE.
+No Dokany, separate Windows Tailscale client, Windows service, scheduled task or setup program is needed.
+
+Download just the EXE and run it from any folder or USB stick. LAN: enter
+`\\NASNAME\Techbase` and press **LAN SMB verbinden**, with no administrator permissions.
+For remote use enter the NAS Tailscale IPv4 or exact `.ts.net` name. At first use, embedded
+helper files are extracted under `%LOCALAPPDATA%\UGREEN Remote Drive Portable\Components`.
+The app asks Windows UAC to elevate **only** its private Tailscale daemon for the Wintun
+adapter. The graphical app remains non-elevated so the native Windows SMB drive
+is accessible to ordinary Windows Explorer and AutoCAD.
+
+A first remote connection needs a one-time non-ephemeral Tailscale auth key and local
+NAS SMB credentials. The app does not store keys/passwords in its settings JSON.
+Later runs reuse its own per-user Tailscale identity. An admin-capable Windows account
+is required for Wintun: authorizing UAC with a *different* administrator account
+won't expose the same private per-user pipe/identity. Launch the GUI normally,
+and approve the prompt with that same administrator-capable account.
+
+**One portable EXE does not mean no operating-system changes:** Wintun needs a
+Windows network driver, and the application extracts runtime helpers and saves its
+per-user configuration/Tailscale identity under LocalAppData. There is no permanent
+scheduled task or Windows service. The elevated daemon may remain running after the
+GUI closes to protect open SMB files; the Tailscale stoppen button disconnects
+the VPN but does not erase the identity or uninstall the driver. First disconnect
+the mapped drive before deleting anything. Avoid concurrently running the installed
+and portable Tailscale adapters because their routes can conflict.
+
+The NAS must have Tailscale online with its local SMB TCP/445 reachable.
+This is a preview; no real UGREEN NAS or AutoCAD save has been confirmed.
+Test first with a copy of a DWG, not an irreplaceable drawing.
 ## Architecture
 
 LAN: Windows SMB → \\NASNAME\Techbase.
