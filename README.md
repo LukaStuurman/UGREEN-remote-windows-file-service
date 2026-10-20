@@ -1,6 +1,6 @@
 # UGREEN Remote Windows File Service
 
-Latest preview: [`v0.6.1-preview.1`](https://github.com/LukaStuurman/UGREEN-remote-windows-file-service/releases/tag/v0.6.1-preview.1). Updates the Windows, tray and installer icon to a transparent background and one dark-orange Techbase symbol. Download **`UGREENRemoteDrive-Setup-win-x64.exe`**, including Dokany and embedded Tailscale. Includes the v0.6.0 embedded Tailscale file-save corrections; see the [Dutch guide](docs/embedded-tailscale.md). Actual AutoCAD/NAS saves remain unverified: preserve the original DXF/good local DWG and use a copy/new filename for validation.
+Latest preview: [`v0.7.0-preview.1`](https://github.com/LukaStuurman/UGREEN-remote-windows-file-service/releases/tag/v0.7.0-preview.1). The normal app now offers **Instellingen → Windows-SMB rechtstreeks gebruiken (zonder Dokany)**. Download **`UGREENRemoteDrive.exe`** for that portable route: LAN works directly; remote Windows-SMB uses the bundled Tailscale/Wintun adapter with a Windows administrator prompt, without a setup program or separate Tailscale app. See the [Dutch Windows-SMB guide](docs/windows-smb.md). The original virtual-drive route remains available and its **`UGREENRemoteDrive-Setup-win-x64.exe`** still includes Dokany. Actual AutoCAD/NAS saves remain unverified; preserve original drawings and test with a copy.
 
 Mount only the UGREEN NAS shared folder named `Techbase` as a fixed Windows drive letter. At home, the client prefers the configured local `Techbase` SMB share. Away from home, it can use embedded Tailscale to the existing NAS peer, or the API container reached through a UGREENlink Docker desktop shortcut (`*.ugapp.link` or `*.ugdocker.link`).
 
@@ -11,7 +11,7 @@ The Windows client opens the shortcut in its own WebView2 window. Sign in with t
 ## Components
 
 - `server/`: a small API container limited to the one host path mounted at `/data`.
-- `client/`: Windows tray/configuration app and Dokany filesystem mount.
+- `client/`: Windows tray/configuration app, optional direct Windows-SMB mapping, and Dokany filesystem mount.
 - `docker-compose.yaml`: local/development Compose file.
 - `docker-compose.ugreen.yaml`: UGREEN NAS Docker Project Compose file.
 - `docker-compose.wireguard.yaml` and `direct-wireguard/`: optional direct WireGuard endpoint with an SMB-only proxy to the existing NAS; no NAS folder mounts or cloud relay. See the [Dutch WireGuard installation and router guide](docs/direct-wireguard.md).
@@ -80,7 +80,7 @@ In that window, **Aanmelding op deze computer onthouden** saves a successful sig
 
 A working SMB connection opens no NAS web desktop. The browser is shown for UGREENlink sign-in when needed and hidden after connecting. **UGREENlink openen** opens that alternative explicitly. The documented [UGOS authentication integration](https://developer.ugnas.com/doc/backend/system-capabilities/login-auth.html) targets integrated NAS desktop apps; it is not a documented username/password endpoint for this Windows client. No unsupported UGREENlink password endpoint, browser password scraping or cookie export is added. WebView2 Runtime remains a client requirement.
 
-The installer preserves existing settings and the app's WebView2 sign-in profile. Close an older copy started from Downloads/the tray and use the installed Start-menu shortcut. If automatic startup was enabled for a portable copy, toggle it off and on in the installed app to update its startup path. Uninstalling the app preserves settings and the shared Dokany installation because other apps may need it. Microsoft Edge WebView2 Runtime must still be available on Windows. The separate `UGREENRemoteDrive.exe` and ZIP remain portable downloads for systems where Dokany is already installed; they are **not** installers.
+The installer preserves existing settings and the app's WebView2 sign-in profile. Close an older copy started from Downloads/the tray and use the installed Start-menu shortcut. If automatic startup was enabled for a portable copy, toggle it off and on in the installed app to update its startup path. Uninstalling the app preserves settings and the shared Dokany installation because other apps may need it. Microsoft Edge WebView2 Runtime must still be available on Windows. The separate `UGREENRemoteDrive.exe` and ZIP are portable downloads. In **Windows-SMB rechtstreeks gebruiken (zonder Dokany)** mode they use native Windows networking; only the original virtual-drive mode requires Dokany. They are **not** installers.
 
 **Wis lokale aanmelding** removes this app browser's cookies, site storage, and saved login/autofill data. Disabling **Aanmelding onthouden** stops enabling UGOS's Keep me logged in option and stops offering to save new passwords; use **Wis lokale aanmelding** to remove already saved data too. No Edge profile is imported or changed.
 
@@ -137,7 +137,7 @@ dotnet build client/UGREENRemoteDrive.sln -c Release
 dotnet test client/UGREENRemoteDrive.sln -c Release --no-build
 ```
 
-The Dokany driver is not installed by the build. Install it from the official Dokany release when you are ready to mount a drive.
+Before publishing the full EXE, run `./native-smb/Build-WindowsSmbComponents.ps1` to build and verify its Windows-SMB Tailscale adapter resources. The build installs no driver. Only the original virtual-drive mode requires Dokany; native Windows-SMB requires no Dokany installation.
 
 To build the bundled installer after publishing the client, use PowerShell with Inno Setup 6 installed:
 

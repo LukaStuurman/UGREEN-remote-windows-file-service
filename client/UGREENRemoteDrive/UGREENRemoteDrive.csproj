@@ -15,6 +15,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\..\native-smb\NativeSmb.cs" Link="WindowsSmb\NativePeerValidation.cs" />
+    <Compile Include="..\..\native-smb\portable\PortableTailnet.cs" Link="WindowsSmb\PortableTailnet.cs" />
+    <EmbeddedResource Include="..\..\native-smb\portable\Resources\tailscaled.exe" LogicalName="UGREEN.Portable.tailscaled.exe" Condition="Exists('..\..\native-smb\portable\Resources\tailscaled.exe')" />
+    <EmbeddedResource Include="..\..\native-smb\portable\Resources\tailscale.exe" LogicalName="UGREEN.Portable.tailscale.exe" Condition="Exists('..\..\native-smb\portable\Resources\tailscale.exe')" />
+    <EmbeddedResource Include="..\..\native-smb\portable\Resources\wintun.dll" LogicalName="UGREEN.Portable.wintun.dll" Condition="Exists('..\..\native-smb\portable\Resources\wintun.dll')" />
+    <EmbeddedResource Include="..\..\native-smb\portable\Resources\THIRD-PARTY-NOTICES.txt" LogicalName="UGREEN.Portable.NOTICES.txt" Condition="Exists('..\..\native-smb\portable\Resources\THIRD-PARTY-NOTICES.txt')" />
     <Resource Include="Assets\TechbaseLogo.png" />
     <Resource Include="Assets\Techbase.ico" />
     <EmbeddedResource Include="..\..\embedded-tailscale\UGREENTailscale.exe" LogicalName="UGREENRemoteDrive.Embedded.UGREENTailscale.exe" Condition="Exists('..\..\embedded-tailscale\UGREENTailscale.exe')" />
@@ -25,4 +31,8 @@
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4191.47" />
   </ItemGroup>
 
+  <Target Name="VerifyWindowsSmbResourcesForPublish" BeforeTargets="Publish">
+    <Error Condition="!Exists('..\..\native-smb\portable\Resources\tailscaled.exe') Or !Exists('..\..\native-smb\portable\Resources\tailscale.exe') Or !Exists('..\..\native-smb\portable\Resources\wintun.dll') Or !Exists('..\..\native-smb\portable\Resources\THIRD-PARTY-NOTICES.txt')"
+           Text="Build native-smb/Build-WindowsSmbComponents.ps1 before publishing the full client." />
+  </Target>
 </Project>

@@ -13,7 +13,7 @@
                    TextWrapping="Wrap" Margin="0,12,0,14" />
         <TextBlock Text="Tailscale-verbindingssleutel (tskey-auth-…)" />
         <PasswordBox x:Name="KeyBox" Margin="0,5,0,12" VerticalContentAlignment="Center" MaxLength="1024" AutomationProperties.Name="Tailscale-verbindingssleutel" />
-        <TextBlock Text="De sleutel wordt niet in instellingen of logs opgeslagen. Windows beschermt daarna de eigen Tailscale-identiteit van deze app. Toegangsregels en goedkeuring door je beheerder blijven gelden."
+        <TextBlock x:Name="StorageNote" Text="De sleutel wordt niet in instellingen of logs opgeslagen. Windows beschermt daarna de eigen Tailscale-identiteit van deze app. Toegangsregels en goedkeuring door je beheerder blijven gelden."
                    TextWrapping="Wrap" Foreground="#555" FontSize="11" />
         <TextBlock x:Name="FeedbackText" TextWrapping="Wrap" Foreground="#9B2525" Margin="0,12,0,0" AutomationProperties.LiveSetting="Polite" />
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">

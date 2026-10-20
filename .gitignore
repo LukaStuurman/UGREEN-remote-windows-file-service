@@ -16,3 +16,6 @@ Techbase-direct.conf
 .wireguard-*
 embedded-tailscale/UGREENTailscale.exe
 embedded-tailscale/THIRD-PARTY-NOTICES.txt
+native-smb/output/
+native-smb/portable/Resources/
+embedded-tailscale/.windows-smb.*
