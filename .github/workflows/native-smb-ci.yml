@@ -30,13 +30,13 @@ jobs:
       - uses: actions/setup-dotnet@v6.0.0
         with:
           dotnet-version: '8.0.x'
+      - name: Test native SMB restrictions and authenticated peer resolution
+        shell: pwsh
+        run: dotnet test native-smb/Native.Tests/Native.Tests.csproj -c Release
       - uses: actions/setup-go@v7.0.0
         with:
           go-version-file: embedded-tailscale/go.mod
           cache-dependency-path: embedded-tailscale/go.sum
-      - name: Test native SMB restrictions and authenticated peer resolution
-        shell: pwsh
-        run: dotnet test native-smb/Native.Tests/Native.Tests.csproj -c Release
       - name: Build standalone app, private tailscaled and signed Wintun installer
         shell: pwsh
         run: ./native-smb/Build-Native.ps1
