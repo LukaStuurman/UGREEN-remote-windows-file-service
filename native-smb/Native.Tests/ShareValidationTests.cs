@@ -28,8 +28,9 @@ public class ShareValidationTests
         Assert.AreEqual(@"\\100.90.10.20\Techbase", NativeSmb.ResolveTailnetShare("nas.example.ts.net", Json));
         Assert.AreEqual(@"\\100.90.10.20\Techbase", NativeSmb.ResolveTailnetShare("100.90.10.20", Json));
         foreach (var value in new[] { "nas.example.ts.net.evil", "other.example.com", "192.168.1.2",
-            "100.63.1.1", "100.128.0.1", "nothere.example.ts.net", @"\\nas.example.ts.net\Techbase" })
-            Assert.ThrowsException<Exception>(() => NativeSmb.ResolveTailnetShare(value, Json));
+            "100.63.1.1", "100.128.0.1", @"\\nas.example.ts.net\Techbase" })
+            Assert.ThrowsExactly<ArgumentException>(() => NativeSmb.ResolveTailnetShare(value, Json));
+        Assert.ThrowsExactly<InvalidOperationException>(() => NativeSmb.ResolveTailnetShare("nothere.example.ts.net", Json));
     }
 
     [TestMethod]
