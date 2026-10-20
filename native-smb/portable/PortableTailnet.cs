@@ -241,7 +241,7 @@ internal sealed class ManagedTailnet
 
     public async Task ResumeAsync()
     {
-        var result = await RunAsync(["up", "--timeout=20s", "--accept-dns=false",
+        var result = await RunAsync(["up", "--timeout=20s", "--hostname=ugreen-remote-drive-portable", "--accept-dns=false",
             "--accept-routes=false", "--shields-up"], TimeSpan.FromSeconds(30));
         if (result.ExitCode != 0 && BackendState(await StatusAsync()) is not ("NeedsMachineAuth" or "NeedsLogin"))
             throw new IOException("Tailscale kon niet hervatten. Controleer internet en de toestemming van dit apparaat.");
