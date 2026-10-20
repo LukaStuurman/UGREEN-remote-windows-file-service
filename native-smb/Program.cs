@@ -38,7 +38,7 @@ internal sealed class NativeWindow : Form
         ForeColor = Color.FromArgb(23, 37, 57);
         Font = new Font("Segoe UI", 10);
         StartPosition = FormStartPosition.CenterScreen;
-        try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
+        try { Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
 
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1,
             RowCount = 3, Padding = new Padding(22), AutoScroll = true };
