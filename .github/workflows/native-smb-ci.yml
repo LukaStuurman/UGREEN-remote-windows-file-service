@@ -57,8 +57,12 @@ jobs:
           $exe = 'native-smb/output/UGREENRemoteDrive-Portable.exe'
           if (!(Test-Path $exe)) { throw 'The portable EXE is missing.' }
           if ((Get-Item $exe).Length -lt 30000000) { throw 'The EXE may not contain all embedded Tailscale components.' }
-          & $exe --portable-self-test
-          if ($LASTEXITCODE -ne 0) { throw "Portable extraction and CLI smoke test failed: $LASTEXITCODE" }
+          # WinExe is a GUI-subsystem process. PowerShell's '&' returns before it
+          # finishes and leaves $LASTEXITCODE unset. Wait for the process handle.
+          $portablePath = (Resolve-Path $exe).Path
+          $check = Start-Process -FilePath $portablePath -ArgumentList '--portable-self-test' -Wait -PassThru
+          Write-Host "Portable self-test exit code: $($check.ExitCode)"
+          if ($check.ExitCode -ne 0) { throw "Portable extraction and CLI smoke test failed: $($check.ExitCode)" }
           if (Get-ScheduledTask -TaskName UGREENRemoteDrivePortableTailnet -ErrorAction SilentlyContinue) {
             throw 'Portable smoke test must not install a scheduled task.'
           }
