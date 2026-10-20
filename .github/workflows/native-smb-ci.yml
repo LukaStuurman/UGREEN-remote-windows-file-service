@@ -1,0 +1,81 @@
+name: Native SMB without Dokany
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'native-smb/**'
+      - '.github/workflows/native-smb-ci.yml'
+      - 'embedded-tailscale/go.mod'
+  push:
+    branches: [main]
+    paths:
+      - 'native-smb/**'
+      - '.github/workflows/native-smb-ci.yml'
+      - 'embedded-tailscale/go.mod'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-native:
+    runs-on: windows-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v6.0.0
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: embedded-tailscale/go.mod
+          cache-dependency-path: embedded-tailscale/go.sum
+      - name: Test native SMB restrictions and authenticated peer resolution
+        shell: pwsh
+        run: dotnet test native-smb/Native.Tests/Native.Tests.csproj -c Release
+      - name: Build standalone app, private tailscaled and signed Wintun installer
+        shell: pwsh
+        run: ./native-smb/Build-Native.ps1
+      - name: Prove the new installer contains no Dokany
+        shell: pwsh
+        run: |
+          $package = 'native-smb/output/app'
+          if (!(Test-Path (Join-Path $package 'UGREENRemoteDrive.Native.exe'))) { throw 'Native SMB executable missing.' }
+          foreach ($name in @('tailscale.exe','tailscaled.exe','wintun.dll')) {
+            if (!(Test-Path (Join-Path $package "tailnet/$name"))) { throw "Missing private component $name" }
+          }
+          if (Get-ChildItem $package -Recurse -File | Where-Object { $_.Name -match '(?i)dokan' }) {
+            throw 'Native SMB package unexpectedly contains Dokany.'
+          }
+      - name: Start private Windows Tailscale daemon without a tailnet account
+        shell: pwsh
+        run: |
+          $root = (Resolve-Path 'native-smb/output/app').Path
+          ./native-smb/InstallTailnet.ps1 -AppRoot $root
+          try {
+            Start-Sleep -Seconds 4
+            if (!(Get-ScheduledTask -TaskName UGREENRemoteDriveNativeTailnet)) { throw 'Private daemon task missing.' }
+            $cli = Join-Path $root 'tailnet/tailscale.exe'
+            $socket = '\\.\pipe\ProtectedPrefix\Administrators\UGREENRemoteDriveNative\tailscaled'
+            $status = & $cli "--socket=$socket" status --json
+            if ($LASTEXITCODE -ne 0) { throw "Private daemon not reachable: $LASTEXITCODE" }
+            $parsed = $status | ConvertFrom-Json
+            if (!$parsed.BackendState) { throw 'Private daemon status is malformed.' }
+            Write-Host "Private daemon state: $($parsed.BackendState)."
+          } finally {
+            ./native-smb/InstallTailnet.ps1 -AppRoot $root -Remove
+          }
+      - name: Upload separate Native SMB preview files
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: UGREENRemoteDrive-NativeSMB-preview
+          path: |
+            native-smb/output/UGREENRemoteDrive-NativeSMB-Setup-win-x64.exe
+            native-smb/output/UGREENRemoteDrive-NativeSMB-Setup-win-x64.exe.sha256
+            native-smb/output/UGREENRemoteDrive-NativeSMB-win-x64.zip
+            native-smb/output/UGREENRemoteDrive-NativeSMB-win-x64.zip.sha256
+          if-no-files-found: error
+          retention-days: 7
