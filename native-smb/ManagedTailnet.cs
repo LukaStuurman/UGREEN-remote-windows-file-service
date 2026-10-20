@@ -59,7 +59,13 @@ internal sealed class ManagedTailnet
             var chars = new char[key.Length];
             try
             {
-                System.Runtime.InteropServices.Marshal.Copy(bytes, chars, 0, chars.Length);
+                System.Runtime.InteropServices.var units = new short[key.Length];
+                try
+                {
+                    System.Runtime.InteropServices.Marshal.Copy(bytes, units, 0, units.Length);
+                    for (var index = 0; index < units.Length; index++) chars[index] = (char)units[index];
+                }
+                finally { Array.Clear(units); }
                 var secret = Encoding.UTF8.GetBytes(chars);
                 try
                 {
