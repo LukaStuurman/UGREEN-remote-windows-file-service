@@ -10,4 +10,7 @@
     <RootNamespace>UGREENRemoteDrive.Native</RootNamespace>
     <ApplicationIcon>..\client\UGREENRemoteDrive\Assets\Techbase.ico</ApplicationIcon>
   </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="Native.Tests\**\*.cs" />
+  </ItemGroup>
 </Project>
