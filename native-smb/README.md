@@ -5,20 +5,20 @@ This is a separate edition of UGREEN Remote Drive that connects Windows directly
 ## Portable single EXE (no installer)
 
 **UGREENRemoteDrive-Portable.exe** is one standalone Windows x64 application containing its own
-.NET runtime, upstream Tailscale CLI/daemon and official Wintun DLL inside the EXE.
+.NET runtime, pinned Tailscale CLI/daemon with an isolated adapter GUID and official Wintun DLL inside the EXE.
 No Dokany, separate Windows Tailscale client, Windows service, scheduled task or setup program is needed.
 
 Download just the EXE and run it from any folder or USB stick. LAN: enter
 `\\NASNAME\Techbase` and press **LAN SMB verbinden**, with no administrator permissions.
 For remote use enter the NAS Tailscale IPv4 or exact `.ts.net` name. At first use, embedded
-helper files are extracted under `%LOCALAPPDATA%\UGREEN Remote Drive Portable\Components`.
+helper files are extracted under `%LOCALAPPDATA%\UGREEN Remote Drive Windows SMB\Components`.
 The app asks Windows UAC to elevate **only** its private Tailscale daemon for the Wintun
 adapter. The graphical app remains non-elevated so the native Windows SMB drive
 is accessible to ordinary Windows Explorer and AutoCAD.
 
 A first remote connection needs a one-time non-ephemeral Tailscale auth key and local
 NAS SMB credentials. The app does not store keys/passwords in its settings JSON.
-Later runs reuse its own per-user Tailscale identity. An admin-capable Windows account
+Later runs reuse its own per-user Tailscale identity. Unattended mode keeps that private profile active after each short CLI request closes; no system Tailscale profile is changed. An admin-capable Windows account
 is required for Wintun: authorizing UAC with a *different* administrator account
 won't expose the same private per-user pipe/identity. Launch the GUI normally,
 and approve the prompt with that same administrator-capable account.
@@ -45,7 +45,7 @@ The private tailscaled process is installed as an isolated SYSTEM scheduled task
 
 ## Installation
 
-Install UGREENRemoteDrive-NativeSMB-Setup-win-x64.exe as administrator. This installer includes the app, an upstream Tailscale CLI/daemon built from the pinned v1.104.1 source dependency and a signed Wintun 0.14.1 DLL verified by SHA-256. No Dokany driver is installed. The NAS must already have Tailscale enabled and its Techbase SMB share exposed to the NAS peer.
+Install UGREENRemoteDrive-NativeSMB-Setup-win-x64.exe as administrator. This installer includes the app, an pinned Tailscale CLI/daemon with an isolated adapter GUID built from the pinned v1.104.1 source dependency and a signed Wintun 0.14.1 DLL verified by SHA-256. No Dokany driver is installed. The NAS must already have Tailscale enabled and its Techbase SMB share exposed to the NAS peer.
 
 Run the separate UGREEN Remote Drive Native SMB application. Enter a LAN path such as \\NASNAME\Techbase, or the NAS's Tailscale IPv4 / exact .ts.net hostname. First-time tailnet enrollment requires launching the app as administrator and supplying a one-time non-ephemeral Tailscale auth key. If your tailnet requires device approval, approve the private node in the Tailscale admin console. Enter local NAS SMB username/password and choose an unused drive letter. The connection is mapped with WNetAddConnection2 directly by Windows, including normal SMB file handles, locking, and writes. Only addresses and the username are saved, never passwords or keys.
 

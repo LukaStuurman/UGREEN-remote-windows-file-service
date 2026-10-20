@@ -77,7 +77,7 @@ internal sealed class ManagedTailnet
             finally { Array.Clear(chars); }
             var result = await RunAsync(["up", "--auth-key=file:" + path,
                 "--hostname=ugreen-remote-drive-native", "--accept-dns=false",
-                "--accept-routes=false", "--shields-up"], TimeSpan.FromSeconds(120));
+                "--accept-routes=false", "--shields-up", "--unattended=true"], TimeSpan.FromSeconds(120));
             if (result.ExitCode != 0)
                 throw new InvalidOperationException("De Tailscale-registratie is niet gelukt. Controleer de authkey en eventuele apparaatgoedkeuring. " +
                     "Status: " + result.ExitCode);

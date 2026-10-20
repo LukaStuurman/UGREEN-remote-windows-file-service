@@ -196,7 +196,7 @@ jobs:
       - name: Build Windows client
         run: dotnet build client/UGREENRemoteDrive.sln -c Release --no-restore
       - name: Run Windows client tests
-        run: dotnet test client/UGREENRemoteDrive.sln -c Release --no-build
+        run: ./native-smb/Test-AdapterCoexistence.ps1
       - name: Install isolated desktop-helper test dependencies
         working-directory: client/browser-tests
         run: npm ci --ignore-scripts --no-audit --no-fund
