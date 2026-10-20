@@ -33,6 +33,23 @@ try {
     if ($null -eq $dll) { throw 'Official amd64 Wintun DLL missing.' }
     Copy-Item $dll.FullName (Join-Path $publish 'tailnet\wintun.dll')
 
+    # Portable edition: combine the app, CLI, daemon and Wintun into ONE EXE.
+    # Helpers are embedded as managed resources and extracted only when Tailscale is used.
+    $portableResources = 'native-smb/portable/Resources'
+    $portableOutput = Join-Path $OutputDirectory 'portable-publish'
+    New-Item -ItemType Directory -Path $portableResources, $portableOutput -Force | Out-Null
+    Copy-Item (Join-Path $tailnet 'tailscaled.exe') (Join-Path $portableResources 'tailscaled.exe')
+    Copy-Item (Join-Path $tailnet 'tailscale.exe') (Join-Path $portableResources 'tailscale.exe')
+    Copy-Item (Join-Path $tailnet 'wintun.dll') (Join-Path $portableResources 'wintun.dll')
+    dotnet restore 'native-smb/portable/UGREENRemoteDrive.Portable.csproj' -r win-x64
+    if ($LASTEXITCODE -ne 0) { throw 'Portable single-EXE restore failed.' }
+    dotnet publish 'native-smb/portable/UGREENRemoteDrive.Portable.csproj' -c Release -r win-x64 --self-contained true --no-restore --output $portableOutput -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false
+    if ($LASTEXITCODE -ne 0) { throw 'Portable single-EXE compilation failed.' }
+    $portableExe = Join-Path $portableOutput 'UGREENRemoteDrive-Portable.exe'
+    if (!(Test-Path $portableExe)) { throw 'Portable single-EXE output is missing.' }
+    Copy-Item $portableExe (Join-Path $OutputDirectory 'UGREENRemoteDrive-Portable.exe')
+    # No installer or helper files accompany the single executable.
+
     dotnet restore 'native-smb/UGREENRemoteDrive.Native.csproj' -r win-x64
     if ($LASTEXITCODE -ne 0) { throw 'Native SMB restore failed.' }
     dotnet publish 'native-smb/UGREENRemoteDrive.Native.csproj' -c Release -r win-x64 --self-contained true --no-restore --output $publish -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false

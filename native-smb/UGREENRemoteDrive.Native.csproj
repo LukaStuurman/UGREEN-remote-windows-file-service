@@ -12,5 +12,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="Native.Tests\**\*.cs" />
+    <Compile Remove="portable\**\*.cs" />
   </ItemGroup>
 </Project>

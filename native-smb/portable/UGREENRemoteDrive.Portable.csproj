@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PlatformTarget>x64</PlatformTarget>
+    <DefineConstants>PORTABLE</DefineConstants>
+    <AssemblyName>UGREENRemoteDrive-Portable</AssemblyName>
+    <RootNamespace>UGREENRemoteDrive.Native</RootNamespace>
+    <ApplicationIcon>..\..\client\UGREENRemoteDrive\Assets\Techbase.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\Program.cs" Link="Program.cs" />
+    <Compile Include="..\NativeSmb.cs" Link="NativeSmb.cs" />
+    <Compile Include="PortableTailnet.cs" />
+    <EmbeddedResource Include="Resources\tailscaled.exe" LogicalName="UGREEN.Portable.tailscaled.exe" />
+    <EmbeddedResource Include="Resources\tailscale.exe" LogicalName="UGREEN.Portable.tailscale.exe" />
+    <EmbeddedResource Include="Resources\wintun.dll" LogicalName="UGREEN.Portable.wintun.dll" />
+  </ItemGroup>
+</Project>

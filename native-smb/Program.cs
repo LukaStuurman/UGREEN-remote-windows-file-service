@@ -9,8 +9,15 @@ namespace UGREENRemoteDrive.Native;
 internal static class Program
 {
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
+#if PORTABLE
+        if (args.Length == 1 && args[0] == "--portable-self-test")
+        {
+            Environment.ExitCode = ManagedTailnet.SelfTest();
+            return;
+        }
+#endif
         ApplicationConfiguration.Initialize();
         Application.Run(new NativeWindow());
     }
@@ -18,7 +25,11 @@ internal static class Program
 
 internal sealed class NativeWindow : Form
 {
+    #if PORTABLE
+    private const string SettingsDirectoryName = "UGREEN Remote Drive Portable";
+#else
     private const string SettingsDirectoryName = "UGREEN Remote Drive Native";
+#endif
     private readonly ManagedTailnet _tailnet = new();
     private readonly TextBox _lan = new(), _host = new(), _nasUser = new(), _nasPassword = new(), _authKey = new();
     private readonly ComboBox _drive = new();
@@ -31,7 +42,11 @@ internal sealed class NativeWindow : Form
 
     public NativeWindow()
     {
+        #if PORTABLE
+        Text = "Techbase | Remote Drive — Portable";
+#else
         Text = "Techbase | Remote Drive — Native SMB";
+#endif
         Size = new Size(800, 710);
         MinimumSize = new Size(670, 660);
         BackColor = Color.FromArgb(246, 248, 252);
@@ -70,10 +85,17 @@ internal sealed class NativeWindow : Form
         _nasPassword.PlaceholderText = "Leeg laten voor bestaande Windows SMB-aanmelding";
 
         var details = new Label {
+            #if PORTABLE
+            Text = "Eén portable EXE: geen Dokany, installer of aparte Tailscale-app. " +
+                   "LAN werkt direct. Voor externe SMB-toegang pakt de EXE Tailscale/Wintun " +
+                   "uit in je gebruikersprofiel. Windows vraagt eenmalig beheerdersrechten " +
+                   "voor de privé-netwerkadapter; de schijfletter blijft gekoppeld als gewone gebruiker.",
+#else
             Text = "Deze editie koppelt Techbase via de eigen SMB-client van Windows. " +
                    "Geen Dokany en geen aparte Windows Tailscale-installatie. " +
                    "De installer beheert een privé-Tailscale-daemon met Wintun. " +
                    "Voor de eerste Tailscale-registratie is eenmalig administrator-toegang nodig.",
+#endif
             AutoSize = true, Dock = DockStyle.Fill, MaximumSize = new Size(680, 0),
             ForeColor = Color.FromArgb(90, 104, 123), Padding = new Padding(0, 12, 0, 12)
         };
@@ -113,6 +135,9 @@ internal sealed class NativeWindow : Form
         _remoteConnect.Click += async (_, _) => await Execute(async () =>
         {
             SaveSettings();
+#if PORTABLE
+            await _tailnet.EnsureStartedAsync();
+#endif
             using var key = Password(_authKey);
             if (!await _tailnet.IsOnlineAsync() && key.Length > 0)
                 await _tailnet.RegisterAsync(key);
