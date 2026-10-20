@@ -80,7 +80,7 @@ In that window, **Aanmelding op deze computer onthouden** saves a successful sig
 
 A working SMB connection opens no NAS web desktop. The browser is shown for UGREENlink sign-in when needed and hidden after connecting. **UGREENlink openen** opens that alternative explicitly. The documented [UGOS authentication integration](https://developer.ugnas.com/doc/backend/system-capabilities/login-auth.html) targets integrated NAS desktop apps; it is not a documented username/password endpoint for this Windows client. No unsupported UGREENlink password endpoint, browser password scraping or cookie export is added. WebView2 Runtime remains a client requirement.
 
-The installer preserves existing settings and the app's WebView2 sign-in profile. Close an older copy started from Downloads/the tray and use the installed Start-menu shortcut. If automatic startup was enabled for a portable copy, toggle it off and on in the installed app to update its startup path. Uninstalling the app preserves settings and the shared Dokany installation because other apps may need it. Microsoft Edge WebView2 Runtime must still be available on Windows. The separate `UGREENRemoteDrive.exe` and ZIP remain portable downloads for systems where Dokany is already installed; they are **not** installers.
+The installer preserves existing settings and the app's WebView2 sign-in profile. Close an older copy started from Downloads/the tray and use the installed Start-menu shortcut. If automatic startup was enabled for a portable copy, toggle it off and on in the installed app to update its startup path. Uninstalling the app preserves settings and the shared Dokany installation because other apps may need it. Microsoft Edge WebView2 Runtime must still be available on Windows. The separate `UGREENRemoteDrive.exe` and ZIP are portable downloads. In **Windows-SMB rechtstreeks gebruiken (zonder Dokany)** mode they use native Windows networking; only the original virtual-drive mode requires Dokany. They are **not** installers.
 
 **Wis lokale aanmelding** removes this app browser's cookies, site storage, and saved login/autofill data. Disabling **Aanmelding onthouden** stops enabling UGOS's Keep me logged in option and stops offering to save new passwords; use **Wis lokale aanmelding** to remove already saved data too. No Edge profile is imported or changed.
 
@@ -137,7 +137,7 @@ dotnet build client/UGREENRemoteDrive.sln -c Release
 dotnet test client/UGREENRemoteDrive.sln -c Release --no-build
 ```
 
-The Dokany driver is not installed by the build. Install it from the official Dokany release when you are ready to mount a drive.
+Before publishing the full EXE, run `./native-smb/Build-WindowsSmbComponents.ps1` to build and verify its Windows-SMB Tailscale adapter resources. The build installs no driver. Only the original virtual-drive mode requires Dokany; native Windows-SMB requires no Dokany installation.
 
 To build the bundled installer after publishing the client, use PowerShell with Inno Setup 6 installed:
 

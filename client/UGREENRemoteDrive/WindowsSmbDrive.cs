@@ -133,15 +133,24 @@ internal sealed class WindowsSmbTailnet(string host)
 
     public async Task<TailnetStatus> GetStatusAsync()
     {
-        var json = await _tailnet.StatusAsync();
+        var parsed = ParseStatus(Host, await _tailnet.StatusAsync());
+        PeerRoot = parsed.PeerRoot;
+        return parsed.Status;
+    }
+
+    internal static (TailnetStatus Status, string? PeerRoot) ParseStatus(string host, string json)
+    {
+        host = EmbeddedTailscaleBackend.ValidateHost(host);
         using var document = JsonDocument.Parse(json);
         var state = document.RootElement.GetProperty("BackendState").GetString() ?? "NoState";
-        PeerRoot = null;
-        if (state == "Running")
+        string? peerRoot = null;
+        if (state == "Running" && document.RootElement.TryGetProperty("TUN", out var tun) && tun.ValueKind == JsonValueKind.True)
         {
-            // Includes TUN, exact name/IP, authenticated peer, online, IPv4 checks.
-            PeerRoot = Native.NativeSmb.ResolveTailnetShare(Host, json);
+            // Enrollment can be complete before the NAS comes online. Keep this
+            // separate from authorization: do not ask for another key in that case.
+            try { peerRoot = Native.NativeSmb.ResolveTailnetShare(host, json); }
+            catch (InvalidOperationException) { }
         }
-        return new(state, PeerRoot is not null, PeerRoot is not null, false, "unknown");
+        return (new(state, peerRoot is not null, peerRoot is not null, false, "unknown"), peerRoot);
     }
 }

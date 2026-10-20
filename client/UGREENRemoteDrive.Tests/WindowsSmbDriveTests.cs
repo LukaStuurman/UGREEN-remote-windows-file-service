@@ -10,6 +10,29 @@ public sealed class WindowsSmbDriveTests
     private const string Root = @"\\fixture-nas\Techbase";
 
     [TestMethod]
+    public void NativeEnrollmentAndNasReadinessRemainSeparateWithoutDnsFallback()
+    {
+        const string json = """
+            {"TUN":true,"BackendState":"Running","Peer":{"p":{"DNSName":"nas.example.ts.net.",
+            "Online":true,"TailscaleIPs":["100.90.10.20"]}}}
+            """;
+        var found = WindowsSmbTailnet.ParseStatus("nas.example.ts.net", json);
+        Assert.IsTrue(found.Status.Ready);
+        Assert.AreEqual(@"\\100.90.10.20\Techbase", found.PeerRoot);
+        foreach (var data in new[] { json.Replace("\"Online\":true", "\"Online\":false"),
+            json.Replace("\"TUN\":true", "\"TUN\":false"), json.Replace("nas.example", "another.example") })
+        {
+            var missing = WindowsSmbTailnet.ParseStatus("nas.example.ts.net", data);
+            Assert.AreEqual("Running", missing.Status.State);
+            Assert.IsFalse(missing.Status.Ready);
+            Assert.IsNull(missing.PeerRoot);
+        }
+        var approval = WindowsSmbTailnet.ParseStatus("nas.example.ts.net", json.Replace("Running", "NeedsMachineAuth"));
+        Assert.AreEqual("NeedsMachineAuth", approval.Status.State);
+        Assert.IsFalse(approval.Status.Ready);
+    }
+
+    [TestMethod]
     public async Task PrivateWindowsAdapterStartsWithoutNasOrTailnetOnDisposableRunner()
     {
         if (Environment.GetEnvironmentVariable("GITHUB_ACTIONS") != "true")

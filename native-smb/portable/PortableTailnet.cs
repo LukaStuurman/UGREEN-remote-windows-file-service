@@ -243,7 +243,7 @@ internal sealed class ManagedTailnet
     {
         var result = await RunAsync(["up", "--timeout=20s", "--accept-dns=false",
             "--accept-routes=false", "--shields-up"], TimeSpan.FromSeconds(30));
-        if (result.ExitCode != 0 && BackendState(await StatusAsync()) != "NeedsMachineAuth")
+        if (result.ExitCode != 0 && BackendState(await StatusAsync()) is not ("NeedsMachineAuth" or "NeedsLogin"))
             throw new IOException("Tailscale kon niet hervatten. Controleer internet en de toestemming van dit apparaat.");
     }
 

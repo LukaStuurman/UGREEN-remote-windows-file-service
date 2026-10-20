@@ -1561,8 +1561,14 @@ public partial class MainWindow : Window
                     if (dialog.ShowDialog() != true) { StatusText.Text = "Tailscale instellen geannuleerd."; return; }
                     status = await _windowsTailnet.GetStatusAsync();
                 }
+                stage = "Tailscale-NAS zoeken";
+                for (var attempt = 0; attempt < 20 && status.State == "Running" && !status.Ready; attempt++)
+                {
+                    await Task.Delay(500);
+                    status = await _windowsTailnet.GetStatusAsync();
+                }
                 if (!status.Ready || _windowsTailnet.PeerRoot is null)
-                    throw new IOException("Tailscale is nog niet gereed of de ingestelde NAS is niet zichtbaar.");
+                    throw new IOException("Tailscale-toestemming is gecontroleerd, maar de eigen netwerkadapter of ingestelde NAS is nog niet beschikbaar. Controleer de NAS-naam, online-status en toegangsregels.");
                 logicalRoot = _windowsTailnet.ShareRoot;
                 peerRoot = _windowsTailnet.PeerRoot;
                 stage = "SMB op de Tailscale-NAS controleren";
