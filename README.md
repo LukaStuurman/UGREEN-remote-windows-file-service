@@ -1,6 +1,6 @@
 # UGREEN Remote Windows File Service
 
-Latest preview: [`v0.6.1-preview.1`](https://github.com/LukaStuurman/UGREEN-remote-windows-file-service/releases/tag/v0.6.1-preview.1). Updates the Windows, tray and installer icon to a transparent background and one dark-orange Techbase symbol. Download **`UGREENRemoteDrive-Setup-win-x64.exe`**, including Dokany and embedded Tailscale. Includes the v0.6.0 embedded Tailscale file-save corrections; see the [Dutch guide](docs/embedded-tailscale.md). Actual AutoCAD/NAS saves remain unverified: preserve the original DXF/good local DWG and use a copy/new filename for validation.
+Latest preview: [`v0.7.0-preview.1`](https://github.com/LukaStuurman/UGREEN-remote-windows-file-service/releases/tag/v0.7.0-preview.1). The normal app now offers **Instellingen → Windows-SMB rechtstreeks gebruiken (zonder Dokany)**. Download **`UGREENRemoteDrive.exe`** for that portable route: LAN works directly; remote Windows-SMB uses the bundled Tailscale/Wintun adapter with a Windows administrator prompt, without a setup program or separate Tailscale app. See the [Dutch Windows-SMB guide](docs/windows-smb.md). The original virtual-drive route remains available and its **`UGREENRemoteDrive-Setup-win-x64.exe`** still includes Dokany. Actual AutoCAD/NAS saves remain unverified; preserve original drawings and test with a copy.
 
 Mount only the UGREEN NAS shared folder named `Techbase` as a fixed Windows drive letter. At home, the client prefers the configured local `Techbase` SMB share. Away from home, it can use embedded Tailscale to the existing NAS peer, or the API container reached through a UGREENlink Docker desktop shortcut (`*.ugapp.link` or `*.ugdocker.link`).
 
@@ -11,7 +11,7 @@ The Windows client opens the shortcut in its own WebView2 window. Sign in with t
 ## Components
 
 - `server/`: a small API container limited to the one host path mounted at `/data`.
-- `client/`: Windows tray/configuration app and Dokany filesystem mount.
+- `client/`: Windows tray/configuration app, optional direct Windows-SMB mapping, and Dokany filesystem mount.
 - `docker-compose.yaml`: local/development Compose file.
 - `docker-compose.ugreen.yaml`: UGREEN NAS Docker Project Compose file.
 - `docker-compose.wireguard.yaml` and `direct-wireguard/`: optional direct WireGuard endpoint with an SMB-only proxy to the existing NAS; no NAS folder mounts or cloud relay. See the [Dutch WireGuard installation and router guide](docs/direct-wireguard.md).

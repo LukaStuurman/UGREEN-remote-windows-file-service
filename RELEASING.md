@@ -4,6 +4,8 @@ GitHub Actions validates and packages source tags beginning with `v`. A release 
 
 ## Required checks before stable release
 
+For the normal app's opt-in Windows-SMB mode, build `native-smb/Build-WindowsSmbComponents.ps1` before publishing. Verify direct LAN mapping, same-share reuse, other occupied-letter refusal, non-forced disconnect with open files, private Wintun UAC startup under the same Windows user, separate enrollment/approval, stopped-node resume, NAS TCP 445 reachability and an actual AutoCAD save on a copy. Synthetic mapping tests and CI adapter startup are not live NAS validation. Distribute the single `UGREENRemoteDrive.exe` for this mode; the existing installer still installs Dokany for the original virtual filesystem.
+
 Do not publish a stable release until the actual NAS path and UGREENlink route have been verified with the `Techbase` share only. Record results for:
 
 - Windows LAN connection to the `Techbase` SMB share.

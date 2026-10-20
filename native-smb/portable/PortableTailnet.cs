@@ -76,6 +76,14 @@ internal sealed class ManagedTailnet
                             ". Sluit de app en verwijder de Components-map om opnieuw uit te pakken.");
                     CryptographicOperations.ZeroMemory(bytes);
                 }
+                using (var notices = Assembly.GetExecutingAssembly().GetManifestResourceStream("UGREEN.Portable.NOTICES.txt"))
+                {
+                    if (notices is not null)
+                    {
+                        using var destination = File.Create(Path.Combine(directory, "THIRD-PARTY-NOTICES.txt"));
+                        notices.CopyTo(destination);
+                    }
+                }
                 _components = directory;
                 return directory;
             }
@@ -117,9 +125,10 @@ internal sealed class ManagedTailnet
         info.ArgumentList.Add("--state=" + StatePath);
         info.ArgumentList.Add("--socket=" + PrivateSocket);
         info.ArgumentList.Add("--no-logs-no-support");
+        Process started;
         try
         {
-            using var started = Process.Start(info)
+            started = Process.Start(info)
                 ?? throw new IOException("Windows kon de ingebouwde Tailscale-adapter niet starten.");
         }
         catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
@@ -130,10 +139,16 @@ internal sealed class ManagedTailnet
 
         // WindowsModeDev uses a per-user named pipe. Elevation with a DIFFERENT
         // account changes the SID: refuse to use an unrelated machine identity.
-        for (var attempt = 0; attempt < 30; attempt++)
+        using (started)
         {
-            if (await IsDaemonAvailableAsync()) return;
-            await Task.Delay(500);
+            for (var attempt = 0; attempt < 20; attempt++)
+            {
+                if (await IsDaemonAvailableAsync()) return;
+                if (started.HasExited)
+                    throw new IOException("De eigen Tailscale-adapter is gestopt (Windows-code " + started.ExitCode +
+                        "). Controleer of je werkcomputer de Wintun-driver en dit programma toestaat.");
+                await Task.Delay(500);
+            }
         }
         throw new IOException("De Tailscale-adapter is niet bereikbaar. Start de portable EXE vanuit " +
             "een Windows-account dat zelf beheerder is en bevestig UAC met hetzelfde account. " +
@@ -203,10 +218,10 @@ internal sealed class ManagedTailnet
                 Array.Clear(chars);
                 Array.Clear(codeUnits);
             }
-            var result = await RunAsync(["up", "--auth-key=file:" + secretPath,
+            var result = await RunAsync(["up", "--timeout=30s", "--auth-key=file:" + secretPath,
                 "--hostname=ugreen-remote-drive-portable", "--accept-dns=false",
                 "--accept-routes=false", "--shields-up"], TimeSpan.FromSeconds(120));
-            if (result.ExitCode != 0)
+            if (result.ExitCode != 0 && BackendState(await StatusAsync()) != "NeedsMachineAuth")
                 throw new IOException("Tailscale-registratie is mislukt. Controleer de authkey, tailnet en " +
                     "eventuele apparaatgoedkeuring.");
         }
@@ -222,6 +237,26 @@ internal sealed class ManagedTailnet
         var result = await RunAsync(["down"], TimeSpan.FromSeconds(20));
         if (result.ExitCode != 0)
             throw new IOException("De portable Tailscale-verbinding kon niet worden gestopt.");
+    }
+
+    public async Task ResumeAsync()
+    {
+        var result = await RunAsync(["up", "--timeout=20s", "--accept-dns=false",
+            "--accept-routes=false", "--shields-up"], TimeSpan.FromSeconds(30));
+        if (result.ExitCode != 0 && BackendState(await StatusAsync()) != "NeedsMachineAuth")
+            throw new IOException("Tailscale kon niet hervatten. Controleer internet en de toestemming van dit apparaat.");
+    }
+
+    public async Task LogoutAsync()
+    {
+        var result = await RunAsync(["logout"], TimeSpan.FromSeconds(20));
+        if (result.ExitCode != 0) throw new IOException("De eigen Tailscale-toestemming kon niet worden gewist.");
+    }
+
+    private static string? BackendState(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.GetProperty("BackendState").GetString();
     }
 
     private static async Task<(int ExitCode, string Output)> RunAsync(string[] args, TimeSpan timeout)

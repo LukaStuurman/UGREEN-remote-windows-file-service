@@ -61,13 +61,16 @@ public partial class MainWindow : Window
     private bool _connectionActionInProgress;
     private EmbeddedTailscaleBackend? _embeddedTailscale;
     private Window? _ugreenLoginWindow;
+    private readonly WindowsSmbDrive _windowsSmb = new(new WindowsDriveApi());
+    private WindowsSmbTailnet? _windowsTailnet;
+    private string _windowsRoute = "";
+    private bool HasMountedDrive => _dokanInstance is not null || _windowsSmb.IsMapped;
 
     public MainWindow()
     {
         InitializeComponent();
         DriveLetterBox.ItemsSource = Enumerable.Range('D', 'Z' - 'D' + 1)
             .Select(code => ((char)code) + ":")
-            .Where(letter => !DriveInfo.GetDrives().Any(drive => drive.Name.Equals(letter + "\\", StringComparison.OrdinalIgnoreCase)))
             .ToArray();
         DriveLetterBox.SelectedItem = "U:";
         _trayIcon = CreateTrayIcon();
@@ -83,6 +86,7 @@ public partial class MainWindow : Window
         RemoteUrlBox.Text = string.IsNullOrWhiteSpace(_settings.RemoteUrl) ? _settings.NasPortalUrl : _settings.RemoteUrl;
         SmbPathBox.Text = _settings.SmbPath;
         TailscaleHostBox.Text = _settings.TailscaleHost;
+        WindowsSmbBox.IsChecked = _settings.UseWindowsSmb;
         if (DriveLetterBox.Items.Contains(_settings.DriveLetter)) DriveLetterBox.SelectedItem = _settings.DriveLetter;
         StartupBox.IsChecked = _settings.AutoStart;
         RememberLoginBox.IsChecked = _settings.RememberLogin;
@@ -91,36 +95,16 @@ public partial class MainWindow : Window
         _connectAndMountRequested = _settings.AutoOpenShortcut &&
             (!string.IsNullOrWhiteSpace(_settings.RemoteUrl) || !string.IsNullOrWhiteSpace(_settings.NasPortalUrl) ||
              !string.IsNullOrWhiteSpace(_settings.SmbPath) || !string.IsNullOrWhiteSpace(_settings.TailscaleHost));
-        try
+        if (_settings.UseWindowsSmb)
         {
-            Directory.CreateDirectory(SettingsStore.AppDirectory);
-            var profile = Path.Combine(SettingsStore.AppDirectory, "WebView2");
-            var environment = await CoreWebView2Environment.CreateAsync(null, profile);
-            await Browser.EnsureCoreWebView2Async(environment);
-            Browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
-            Browser.CoreWebView2.Settings.AreDevToolsEnabled = false;
-            Browser.CoreWebView2.Settings.IsStatusBarEnabled = false;
-            // Use the browser's own per-Windows-user password manager. The client
-            // never reads password fields, cookies, or the password database.
-            Browser.CoreWebView2.Profile.IsPasswordAutosaveEnabled = _settings.RememberLogin;
-            _bridge = new RemoteBridge(Browser);
-            await _bridge.InitializeAsync();
-            _remote = new RemoteBackend(_bridge);
-            Browser.NavigationStarting += Browser_NavigationStarting;
-            Browser.NavigationCompleted += Browser_NavigationCompleted;
-            Browser.CoreWebView2.NewWindowRequested += Browser_NewWindowRequested;
-            Browser.CoreWebView2.WebResourceResponseReceived += Browser_WebResourceResponseReceived;
-            Browser.CoreWebView2.SourceChanged += Browser_SourceChanged;
-            Browser.CoreWebView2.WebMessageReceived += Browser_DesktopSelectionReceived;
-            CreateUgreenLoginPopup();
-        }
-        catch (Exception ex)
-        {
-            StatusText.Text = "WebView2 kon niet starten. Installeer zo nodig de officiële Microsoft Edge WebView2 Runtime.";
-            DriveLog.Error("WebView2 initialization failed: " + ex.GetType().Name);
             SetConfigurationControlsEnabled(true);
+            StatusText.Text = "Windows-SMB staat aan. Klik op Verbinden; Dokany is niet nodig.";
+            if (_connectAndMountRequested) await ConnectWindowsSmbAsync();
+            _statusTimer.Start();
+            if (HasMountedDrive && Environment.GetCommandLineArgs().Contains("--minimized", StringComparer.OrdinalIgnoreCase)) Hide();
             return;
         }
+        if (!await InitializeBrowserAsync()) return;
 
         TryConfigureFromSettings();
         RebuildBackends();
@@ -153,8 +137,45 @@ public partial class MainWindow : Window
             // Keep the window visible so a first-time sign-in and shortcut selection can finish.
         }
         _statusTimer.Start();
-        SetConfigurationControlsEnabled(_dokanInstance is null);
+        SetConfigurationControlsEnabled(!HasMountedDrive);
         if (!_shortcutDiscoveryActive && _ugreenLoginWindow?.IsVisible != true && Environment.GetCommandLineArgs().Contains("--minimized", StringComparer.OrdinalIgnoreCase)) Hide();
+    }
+
+    private async Task<bool> InitializeBrowserAsync()
+    {
+        if (_bridge is not null) return true;
+        try
+        {
+            Directory.CreateDirectory(SettingsStore.AppDirectory);
+            var profile = Path.Combine(SettingsStore.AppDirectory, "WebView2");
+            var environment = await CoreWebView2Environment.CreateAsync(null, profile);
+            await Browser.EnsureCoreWebView2Async(environment);
+            Browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
+            Browser.CoreWebView2.Settings.AreDevToolsEnabled = false;
+            Browser.CoreWebView2.Settings.IsStatusBarEnabled = false;
+            // Use the browser's own per-Windows-user password manager. The client
+            // never reads password fields, cookies, or the password database.
+            Browser.CoreWebView2.Profile.IsPasswordAutosaveEnabled = _settings.RememberLogin;
+            _bridge = new RemoteBridge(Browser);
+            await _bridge.InitializeAsync();
+            _remote = new RemoteBackend(_bridge);
+            Browser.NavigationStarting += Browser_NavigationStarting;
+            Browser.NavigationCompleted += Browser_NavigationCompleted;
+            Browser.CoreWebView2.NewWindowRequested += Browser_NewWindowRequested;
+            Browser.CoreWebView2.WebResourceResponseReceived += Browser_WebResourceResponseReceived;
+            Browser.CoreWebView2.SourceChanged += Browser_SourceChanged;
+            Browser.CoreWebView2.WebMessageReceived += Browser_DesktopSelectionReceived;
+            CreateUgreenLoginPopup();
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "WebView2 kon niet starten. Installeer zo nodig de officiële Microsoft Edge WebView2 Runtime.";
+            DriveLog.Error("WebView2 initialization failed: " + ex.GetType().Name);
+            SetConfigurationControlsEnabled(true);
+            return false;
+        }
+
+        return true;
     }
 
     private void Browser_SourceChanged(object? sender, CoreWebView2SourceChangedEventArgs e)
@@ -170,12 +191,12 @@ public partial class MainWindow : Window
 
     private void ConnectionPreferencesChanged(object sender, RoutedEventArgs e)
     {
-        if (Browser.CoreWebView2 is not { } core) return;
+        var core = Browser.CoreWebView2;
         try
         {
             _settings.RememberLogin = RememberLoginBox.IsChecked == true;
             _settings.AutoOpenShortcut = AutoOpenShortcutBox.IsChecked == true;
-            core.Profile.IsPasswordAutosaveEnabled = _settings.RememberLogin;
+            if (core is not null) core.Profile.IsPasswordAutosaveEnabled = _settings.RememberLogin;
             SettingsStore.Save(_settings);
             if (!_settings.AutoOpenShortcut) _connectAndMountRequested = false;
             _automaticTileOpenAttemptedGeneration = -1;
@@ -1014,7 +1035,7 @@ public partial class MainWindow : Window
 
     private async Task ConnectAsync(bool trySmb)
     {
-        if (_nativeSignInActive || _connectionActionInProgress || _dokanInstance is not null) return;
+        if (_nativeSignInActive || _connectionActionInProgress || HasMountedDrive) return;
         _connectionActionInProgress = true;
         SetConfigurationControlsEnabled(false);
         try
@@ -1027,6 +1048,13 @@ public partial class MainWindow : Window
             _connectAndMountRequested = true;
             _autoMountAttempted = false;
             SaveSettingsFromForm(navigateToRemote: false);
+            if (_settings.UseWindowsSmb)
+            {
+                if (!trySmb) throw new InvalidOperationException("UGREENlink gebruikt de virtuele schijf. Zet Windows-SMB uit om die route te gebruiken.");
+                await ConnectWindowsSmbAsync();
+                return;
+            }
+            if (!await InitializeBrowserAsync()) return;
             if (trySmb) { _backends = null; RebuildBackends(); }
             if (trySmb && await TryMountFromSmbAsync(restoreSavedSignIn: true)) return;
             if (trySmb && !string.IsNullOrWhiteSpace(_settings.TailscaleHost))
@@ -1073,13 +1101,14 @@ public partial class MainWindow : Window
         finally
         {
             _connectionActionInProgress = false;
-            SetConfigurationControlsEnabled(_dokanInstance is null);
+            SetConfigurationControlsEnabled(!HasMountedDrive);
         }
     }
 
     private async Task MountDriveAsync()
     {
-        if (_dokanInstance is not null) return;
+        if (_settings.UseWindowsSmb) throw new InvalidOperationException("Windows-SMB gebruikt geen virtuele schijf.");
+        if (HasMountedDrive) return;
         RebuildBackends();
         if (_backends is null) throw new InvalidOperationException("Controleer het UGREENlink-adres.");
         await _backends.ProbeSmbAsync(useRecentResult: true);
@@ -1188,6 +1217,21 @@ public partial class MainWindow : Window
 
     private void UnmountButton_Click(object sender, RoutedEventArgs e)
     {
+        if (_windowsSmb.IsMapped)
+        {
+            try
+            {
+                var removed = _windowsSmb.Disconnect();
+                _mountedPoint = null;
+                UnmountButton.IsEnabled = false;
+                SetConfigurationControlsEnabled(true);
+                StatusText.Text = removed ? "De Windows-SMB-schijf is ontkoppeld."
+                    : "Deze bestaande Windows-koppeling blijft behouden. Je kunt haar zelf via Verkenner ontkoppelen.";
+                UpdateBackendText();
+            }
+            catch (Exception ex) { StatusText.Text = ex.Message; }
+            return;
+        }
         if (_dokan is null || _mountedPoint is null) return;
         StatusText.Text = "Schijf wordt ontkoppeld…";
         _dokan.RemoveMountPoint(_mountedPoint);
@@ -1219,7 +1263,7 @@ public partial class MainWindow : Window
 
     private async Task RefreshStatusAsync()
     {
-        if (_nativeSignInActive || _mountedBackend is SmbBackend or EmbeddedTailscaleBackend) { UpdateBackendText(); return; }
+        if (_settings.UseWindowsSmb || _windowsSmb.IsMapped || _nativeSignInActive || _mountedBackend is SmbBackend or EmbeddedTailscaleBackend) { UpdateBackendText(); return; }
         if (_backends is not null)
             _ = _backends.ProbeSmbAsync(useRecentResult: true);
 
@@ -1308,16 +1352,23 @@ public partial class MainWindow : Window
 
     private void SaveSettingsFromForm(bool navigateToRemote = true)
     {
-        if (_dokanInstance is not null)
+        if (HasMountedDrive)
             throw new InvalidOperationException("Ontkoppel de schijf voordat je instellingen wijzigt.");
         var urlText = RemoteUrlBox.Text.Trim();
         var smbPath = SmbPathBox.Text.Trim();
         var tailHost = string.IsNullOrWhiteSpace(TailscaleHostBox.Text) ? "" : EmbeddedTailscaleBackend.ValidateHost(TailscaleHostBox.Text);
-        var setupTarget = UgreenLinkSetupAddress.ParseConnection(urlText,
+        var windowsSmb = WindowsSmbBox.IsChecked == true;
+        if (windowsSmb)
+        {
+            if (smbPath.Length > 0) smbPath = SmbSignInService.ValidateRoot(smbPath);
+            if (smbPath.Length == 0 && tailHost.Length == 0)
+                throw new InvalidOperationException("Vul een lokaal SMB-adres of Tailscale-NAS-adres in.");
+        }
+        var setupTarget = windowsSmb ? null : UgreenLinkSetupAddress.ParseConnection(urlText,
             string.IsNullOrWhiteSpace(smbPath) && tailHost.Length > 0 ? @"\\" + tailHost + @"\Techbase" : smbPath);
         var drive = DriveLetterBox.SelectedItem as string;
         if (string.IsNullOrWhiteSpace(drive)) throw new InvalidOperationException("Kies een driveletter.");
-        var tileName = ShortcutTileNameBox.Text.Trim();
+        var tileName = windowsSmb ? _settings.ShortcutTileName : ShortcutTileNameBox.Text.Trim();
         if (DesktopTileSelection.Validate("", tileName) is null)
             throw new InvalidOperationException("Vul de exacte NAS-tegelnaam in (maximaal 128 tekens).");
         var sameShortcut = setupTarget?.Kind == UgreenLinkSetupKind.Shortcut &&
@@ -1326,23 +1377,24 @@ public partial class MainWindow : Window
 
         _settings = new DriveSettings
         {
-            RemoteUrl = setupTarget?.Kind == UgreenLinkSetupKind.Shortcut ? setupTarget.Address.AbsoluteUri : "",
-            NasPortalUrl = setupTarget?.Kind == UgreenLinkSetupKind.NasPortal ? setupTarget.Address.AbsoluteUri :
+            RemoteUrl = windowsSmb ? _settings.RemoteUrl : setupTarget?.Kind == UgreenLinkSetupKind.Shortcut ? setupTarget.Address.AbsoluteUri : "",
+            NasPortalUrl = windowsSmb ? _settings.NasPortalUrl : setupTarget?.Kind == UgreenLinkSetupKind.NasPortal ? setupTarget.Address.AbsoluteUri :
                 sameShortcut ? _settings.NasPortalUrl : "",
             SmbPath = smbPath,
             TailscaleHost = tailHost,
+            UseWindowsSmb = windowsSmb,
             DriveLetter = drive,
             AutoStart = StartupBox.IsChecked == true,
             RememberLogin = RememberLoginBox.IsChecked == true,
             AutoOpenShortcut = AutoOpenShortcutBox.IsChecked == true,
             ShortcutTileName = tileName,
-            ShortcutTileId = sameShortcut && sameTileName ? _settings.ShortcutTileId : ""
+            ShortcutTileId = windowsSmb || (sameShortcut && sameTileName) ? _settings.ShortcutTileId : ""
         };
         SettingsStore.Save(_settings);
         if (Browser.CoreWebView2 is { } core) core.Profile.IsPasswordAutosaveEnabled = _settings.RememberLogin;
         UpdateStartupRegistration(_settings.AutoStart);
-        ConfigureRemote();
-        if (navigateToRemote && _settings.AutoStart && !_settings.RemoteUrl.Equals(Browser.Source?.AbsoluteUri, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(_settings.RemoteUrl))
+        if (!_settings.UseWindowsSmb) ConfigureRemote();
+        if (!_settings.UseWindowsSmb && navigateToRemote && _settings.AutoStart && !_settings.RemoteUrl.Equals(Browser.Source?.AbsoluteUri, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(_settings.RemoteUrl))
         {
             Browser.Source = ValidateRemoteUrl(_settings.RemoteUrl);
         }
@@ -1411,11 +1463,13 @@ public partial class MainWindow : Window
 
     private void UpdateBackendText()
     {
-        BackendText.Text = "Verbinding: " + (_backends?.Mode ?? "geen");
+        BackendText.Text = _windowsSmb.IsMapped ? "Verbinding: Windows-SMB / " + _windowsRoute
+            : _settings.UseWindowsSmb ? "Verbinding: Windows-SMB (zonder Dokany)" : "Verbinding: " + (_backends?.Mode ?? "geen");
     }
 
     private void ShowRemoteBrowser(bool visible)
     {
+        if (visible && _settings.UseWindowsSmb) return;
         BrowserHost.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
         if (_ugreenLoginWindow is null) return;
         if (visible) { if (!_ugreenLoginWindow.IsVisible) _ugreenLoginWindow.Show(); _ugreenLoginWindow.Activate(); }
@@ -1444,16 +1498,138 @@ public partial class MainWindow : Window
         _ugreenLoginWindow.Closing += (_, e) => { if (!_exitRequested) { e.Cancel = true; _ugreenLoginWindow.Hide(); } };
     }
 
+    private void WindowsSmbChanged(object sender, RoutedEventArgs e)
+    {
+        if (HasMountedDrive || _nativeSignInActive || _connectionActionInProgress)
+        {
+            WindowsSmbBox.IsChecked = _settings.UseWindowsSmb;
+            return;
+        }
+        _settings.UseWindowsSmb = WindowsSmbBox.IsChecked == true;
+        _connectAndMountRequested = false;
+        _pendingAutomaticTileOpen = null;
+        ShowRemoteBrowser(false);
+        SettingsStore.Save(_settings);
+        SetConfigurationControlsEnabled(true);
+        StatusText.Text = _settings.UseWindowsSmb
+            ? "Windows-SMB staat aan. Lokaal zonder installatie; Tailscale vraagt toestemming voor de eigen netwerkadapter."
+            : "De virtuele schijf staat aan. Voor deze route is Dokany nodig.";
+        UpdateBackendText();
+    }
+
+    private async Task ConnectWindowsSmbAsync(bool tailscaleOnly = false, bool lanOnly = false, bool askSignIn = false)
+    {
+        if (_nativeSignInActive || HasMountedDrive) return;
+        _nativeSignInActive = true;
+        SetConfigurationControlsEnabled(false);
+        ShowRemoteBrowser(false);
+        var stage = "Netwerk controleren";
+        try
+        {
+            string logicalRoot, peerRoot;
+            if (!tailscaleOnly && !string.IsNullOrWhiteSpace(_settings.SmbPath) &&
+                await SmbSignInService.CanContactServerAsync(_settings.SmbPath))
+            {
+                logicalRoot = peerRoot = SmbSignInService.ValidateRoot(_settings.SmbPath);
+                _windowsRoute = "lokaal netwerk";
+            }
+            else
+            {
+                if (lanOnly) throw new IOException("De lokale NAS is niet bereikbaar op SMB-poort 445.");
+                if (string.IsNullOrWhiteSpace(_settings.TailscaleHost))
+                    throw new IOException("Het lokale netwerk is niet bereikbaar. Vul een Tailscale-NAS-adres in om op afstand te verbinden.");
+                stage = "Tailscale-adapter starten";
+                StatusText.Text = "Eigen Tailscale-netwerkadapter starten. Bevestig zo nodig de Windows-beheerdersprompt…";
+                if (_windowsTailnet?.Host != _settings.TailscaleHost)
+                    _windowsTailnet = new WindowsSmbTailnet(_settings.TailscaleHost);
+                await _windowsTailnet.EnsureStartedAsync();
+                stage = "Tailscale-toestemming controleren";
+                var status = await _windowsTailnet.GetStatusAsync();
+                for (var attempt = 0; attempt < 20 && status.State is "Starting" or "NoState"; attempt++)
+                {
+                    await Task.Delay(500);
+                    status = await _windowsTailnet.GetStatusAsync();
+                }
+                if (status.State == "Stopped")
+                {
+                    await _windowsTailnet.ResumeAsync();
+                    status = await _windowsTailnet.GetStatusAsync();
+                }
+                if (status.State != "Running")
+                {
+                    var dialog = new TailscaleKeyWindow(_windowsTailnet, status.State == "NeedsMachineAuth") { Owner = this };
+                    if (dialog.ShowDialog() != true) { StatusText.Text = "Tailscale instellen geannuleerd."; return; }
+                    status = await _windowsTailnet.GetStatusAsync();
+                }
+                if (!status.Ready || _windowsTailnet.PeerRoot is null)
+                    throw new IOException("Tailscale is nog niet gereed of de ingestelde NAS is niet zichtbaar.");
+                logicalRoot = _windowsTailnet.ShareRoot;
+                peerRoot = _windowsTailnet.PeerRoot;
+                stage = "SMB op de Tailscale-NAS controleren";
+                if (!await SmbSignInService.CanContactServerAsync(peerRoot))
+                    throw new IOException("De NAS is gevonden in Tailscale, maar SMB-poort 445 is niet bereikbaar. Controleer de NAS en Tailscale-toegangsregels.");
+                _windowsRoute = "ingebouwde Tailscale";
+            }
+
+            stage = "NAS-aanmelding";
+            var signIn = new SmbSignInService(new WindowsSmbCredentialStore(), new PeerSmbConnector(logicalRoot, peerRoot));
+            if (!askSignIn && _savedSmbSignInAttempted.Add(logicalRoot))
+            {
+                try { await Task.Run(() => signIn.Restore(logicalRoot)); }
+                catch { /* A fresh native popup remains available; never log secrets. */ }
+            }
+            string? warning = null;
+            if (askSignIn)
+            {
+                var dialog = new NasSignInWindow(logicalRoot, signIn) { Owner = this };
+                if (dialog.ShowDialog() != true) { StatusText.Text = "NAS-aanmelding geannuleerd."; return; }
+                warning = dialog.SaveWarning;
+            }
+            stage = "Windows-schijf koppelen";
+            try { await Task.Run(() => _windowsSmb.Connect(_settings.DriveLetter, peerRoot)); }
+            catch (WindowsSmbMappingException ex) when (!askSignIn && ex.Error is 5 or 86 or 1326 or 2202)
+            {
+                var dialog = new NasSignInWindow(logicalRoot, signIn) { Owner = this };
+                if (dialog.ShowDialog() != true) { StatusText.Text = "NAS-aanmelding geannuleerd."; return; }
+                warning = dialog.SaveWarning;
+                await Task.Run(() => _windowsSmb.Connect(_settings.DriveLetter, peerRoot));
+            }
+            _mountedPoint = _windowsSmb.Letter + "\\";
+            UnmountButton.IsEnabled = true;
+            StatusText.Text = $"Schijf {_windowsSmb.Letter} is verbonden via Windows-SMB."
+                + (_windowsSmb.OwnsMapping ? "" : " De bestaande koppeling naar dezelfde NAS wordt hergebruikt.")
+                + (warning is null ? "" : " " + warning);
+            UpdateBackendText();
+            _ = OpenDriveInExplorerAsync(_mountedPoint);
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = stage + ": " + ex.Message;
+            DriveLog.Error("Windows SMB connection failed at " + stage + ": " + ex.GetType().Name);
+        }
+        finally
+        {
+            _connectAndMountRequested = false;
+            _nativeSignInActive = false;
+            SetConfigurationControlsEnabled(!HasMountedDrive);
+        }
+    }
+
     private async void ConnectTailscaleButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_nativeSignInActive || _connectionActionInProgress || _dokanInstance is not null) return;
-        try { SaveSettingsFromForm(navigateToRemote: false); await ConnectEmbeddedTailscaleAsync(); }
+        if (_nativeSignInActive || _connectionActionInProgress || HasMountedDrive) return;
+        try
+        {
+            SaveSettingsFromForm(navigateToRemote: false);
+            if (_settings.UseWindowsSmb) await ConnectWindowsSmbAsync(tailscaleOnly: true);
+            else { if (!await InitializeBrowserAsync()) return; await ConnectEmbeddedTailscaleAsync(); }
+        }
         catch (Exception ex) { StatusText.Text = ex.Message; }
     }
 
     private async Task ConnectEmbeddedTailscaleAsync()
     {
-        if (_nativeSignInActive || _dokanInstance is not null) return;
+        if (_nativeSignInActive || HasMountedDrive) return;
         _nativeSignInActive = true;
         SetConfigurationControlsEnabled(false);
         ShowRemoteBrowser(false);
@@ -1506,15 +1682,26 @@ public partial class MainWindow : Window
             StatusText.Text = ex is DriveApiException ? "De ingebouwde Tailscale/NAS-verbinding kon niet worden afgerond. Controleer de toestemming en SMB op de NAS." : ex.Message;
             DriveLog.Error("Embedded Tailscale connection failed: " + ex.GetType().Name);
         }
-        finally { _nativeSignInActive = false; SetConfigurationControlsEnabled(_dokanInstance is null); }
+        finally { _nativeSignInActive = false; SetConfigurationControlsEnabled(!HasMountedDrive); }
     }
 
     private async void ForgetTailscaleButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_nativeSignInActive || _connectionActionInProgress || _dokanInstance is not null) return;
+        if (_nativeSignInActive || _connectionActionInProgress || HasMountedDrive) return;
         _nativeSignInActive = true; SetConfigurationControlsEnabled(false);
         try
         {
+            if (_settings.UseWindowsSmb)
+            {
+                var answer = WpfMessageBox.Show(this,
+                    "Sluit eerst alle bestanden op de Windows-Tailscale-schijf, ook in andere programma's. De eigen Windows-SMB-Tailscale-toestemming wissen?",
+                    "Tailscale-toestemming wissen", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
+                if (answer != MessageBoxResult.OK) return;
+                _windowsTailnet ??= new WindowsSmbTailnet(_settings.TailscaleHost);
+                await _windowsTailnet.LogoutAsync();
+                StatusText.Text = "De Tailscale-toestemming voor Windows-SMB is gewist.";
+                return;
+            }
             if (_embeddedTailscale is null) _embeddedTailscale = await Task.Run(() => new EmbeddedTailscaleBackend(EmbeddedTailscaleBackend.ValidateHost(_settings.TailscaleHost)));
             await Task.Run(_embeddedTailscale.Logout);
             _embeddedTailscale.Dispose(); _embeddedTailscale = null;
@@ -1526,19 +1713,20 @@ public partial class MainWindow : Window
 
     private async void SmbSignInButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_nativeSignInActive || _dokanInstance is not null) return;
+        if (_nativeSignInActive || HasMountedDrive) return;
         try
         {
             SaveSettingsFromForm(navigateToRemote: false);
             _connectAndMountRequested = true;
-            await SignInAndMountSmbAsync();
+            if (_settings.UseWindowsSmb) await ConnectWindowsSmbAsync(lanOnly: true, askSignIn: true);
+            else { if (!await InitializeBrowserAsync()) return; await SignInAndMountSmbAsync(); }
         }
         catch (Exception ex) { StatusText.Text = ex.Message; }
     }
 
     private async Task SignInAndMountSmbAsync()
     {
-        if (_nativeSignInActive || _dokanInstance is not null) return;
+        if (_nativeSignInActive || HasMountedDrive) return;
         _nativeSignInActive = true;
         SetConfigurationControlsEnabled(false);
         ShowRemoteBrowser(false);
@@ -1561,13 +1749,13 @@ public partial class MainWindow : Window
         finally
         {
             _nativeSignInActive = false;
-            SetConfigurationControlsEnabled(_dokanInstance is null);
+            SetConfigurationControlsEnabled(!HasMountedDrive);
         }
     }
 
     private void ForgetSmbButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_nativeSignInActive || _dokanInstance is not null) return;
+        if (_nativeSignInActive || HasMountedDrive) return;
         try
         {
             _smbSignIn.Forget(SmbPathBox.Text);
@@ -1578,6 +1766,7 @@ public partial class MainWindow : Window
 
     private void SetConfigurationControlsEnabled(bool enabled)
     {
+        WindowsSmbBox.IsEnabled = enabled;
         RemoteUrlBox.IsEnabled = enabled;
         SmbPathBox.IsEnabled = enabled;
         TailscaleHostBox.IsEnabled = enabled;
@@ -1588,7 +1777,7 @@ public partial class MainWindow : Window
         DriveLetterBox.IsEnabled = enabled;
         StartupBox.IsEnabled = enabled;
         ConnectButton.IsEnabled = enabled;
-        RemoteConnectButton.IsEnabled = enabled;
+        RemoteConnectButton.IsEnabled = enabled && !_settings.UseWindowsSmb;
         ForgetLoginButton.IsEnabled = enabled;
         RememberLoginBox.IsEnabled = enabled;
         AutoOpenShortcutBox.IsEnabled = enabled;

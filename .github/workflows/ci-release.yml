@@ -189,6 +189,8 @@ jobs:
           cache-dependency-path: embedded-tailscale/go.sum
       - name: Build and verify bundled Tailscale transport
         run: ./embedded-tailscale/Build.ps1
+      - name: Build and verify Windows SMB Tailscale adapter components without installing a driver
+        run: ./native-smb/Build-WindowsSmbComponents.ps1
       - name: Restore Windows client
         run: dotnet restore client/UGREENRemoteDrive.sln
       - name: Build Windows client
@@ -216,6 +218,8 @@ jobs:
           $exe = Join-Path $publish 'UGREENRemoteDrive.exe'
           $releaseExe = Join-Path $env:RUNNER_TEMP 'UGREENRemoteDrive.exe'
           Copy-Item $exe -Destination $releaseExe
+          $check = Start-Process -FilePath $releaseExe -ArgumentList '--verify-windows-smb-components' -WindowStyle Hidden -Wait -PassThru
+          if ($check.ExitCode -ne 0) { throw 'Published EXE Windows-SMB component verification failed.' }
           Copy-Item README.md -Destination (Join-Path $publish 'README.md')
           Compress-Archive -Path (Join-Path $publish '*') -DestinationPath $archive
           $exeHash = (Get-FileHash $releaseExe -Algorithm SHA256).Hash.ToLowerInvariant()

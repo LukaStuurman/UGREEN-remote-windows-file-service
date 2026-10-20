@@ -82,6 +82,8 @@
                             <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                                 <StackPanel>
                                     <TextBlock Text="Schijf en opstarten" FontSize="19" FontWeight="SemiBold"/>
+                                    <CheckBox x:Name="WindowsSmbBox" Content="Windows-SMB rechtstreeks gebruiken (zonder Dokany)" Margin="0,16,0,0" Click="WindowsSmbChanged"/>
+                                    <TextBlock Text="Lokaal werkt dit zonder installatie. Via ingebouwde Tailscale vraagt de eigen netwerkadapter een Windows-beheerdersprompt. Ontkoppel de schijf voordat je omschakelt." Style="{StaticResource Caption}" Margin="0,8,0,0"/>
                                     <Label Content="_Schijfletter" Target="{Binding ElementName=DriveLetterBox}" Padding="0" Margin="0,16,0,5"/>
                                     <ComboBox x:Name="DriveLetterBox" Width="100" HorizontalAlignment="Left"/>
                                     <CheckBox x:Name="StartupBox" Content="Start en koppel automatisch bij Windows-aanmelding" Margin="0,16,0,0"/>

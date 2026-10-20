@@ -4,12 +4,23 @@ namespace UGREENRemoteDrive;
 
 public partial class TailscaleKeyWindow : Window
 {
-    private readonly EmbeddedTailscaleBackend _backend;
+    private readonly Func<System.Security.SecureString, Task> _authorize;
+    private readonly Func<Task<TailnetStatus>> _getStatus;
     private bool _busy;
     private bool _waitingForApproval;
     internal TailscaleKeyWindow(EmbeddedTailscaleBackend backend, bool waitingForApproval = false)
+        : this(key => Task.Run(() => backend.Authorize(key)), () => Task.Run(backend.GetStatus), waitingForApproval) { }
+
+    internal TailscaleKeyWindow(WindowsSmbTailnet backend, bool waitingForApproval = false)
+        : this(backend.AuthorizeAsync, backend.GetStatusAsync, waitingForApproval)
     {
-        InitializeComponent(); _backend = backend;
+        StorageNote.Text = "Deze Windows-SMB-route gebruikt een eigen Tailscale-identiteit, apart van de gewone ingebouwde verbinding. De auth key wordt niet in instellingen of logs opgeslagen. Apparaatgoedkeuring en toegangsregels blijven gelden.";
+    }
+
+    private TailscaleKeyWindow(Func<System.Security.SecureString, Task> authorize,
+        Func<Task<TailnetStatus>> getStatus, bool waitingForApproval)
+    {
+        InitializeComponent(); _authorize = authorize; _getStatus = getStatus;
         if (waitingForApproval) ShowApprovalRequired();
         Loaded += (_, _) => { if (_waitingForApproval) CheckApprovalButton.Focus(); else KeyBox.Focus(); };
         Closing += (_, e) => { if (_busy) e.Cancel = true; else KeyBox.Clear(); };
@@ -24,8 +35,8 @@ public partial class TailscaleKeyWindow : Window
         FeedbackText.Text = "Deze app registreren bij Tailscale…";
         try
         {
-            await Task.Run(() => _backend.Authorize(key));
-            ShowStatus(await Task.Run(_backend.GetStatus));
+            await _authorize(key);
+            ShowStatus(await _getStatus());
         }
         catch (DriveApiException ex) { FeedbackText.Text = ex.Message; }
         catch (DriveDisconnectedException ex) { FeedbackText.Text = ex.Message; }
@@ -40,7 +51,7 @@ public partial class TailscaleKeyWindow : Window
     {
         if (_busy) return;
         SetBusy(true);
-        try { ShowStatus(await Task.Run(_backend.GetStatus)); }
+        try { ShowStatus(await _getStatus()); }
         catch { FeedbackText.Text = "De goedkeuring kon niet worden gecontroleerd. Controleer je internetverbinding en probeer opnieuw."; }
         finally { SetBusy(false); }
     }
@@ -66,7 +77,7 @@ public partial class TailscaleKeyWindow : Window
         AuthorizeButton.IsDefault = false;
         CheckApprovalButton.Visibility = Visibility.Visible;
         CheckApprovalButton.IsDefault = true;
-        FeedbackText.Text = "De app is geregistreerd en wacht op apparaatgoedkeuring. Open Tailscale → Machines, keur ugreen-remote-drive goed en klik daarna op Goedkeuring controleren. Je hoeft de sleutel niet opnieuw in te voeren.";
+        FeedbackText.Text = "De app is geregistreerd en wacht op apparaatgoedkeuring. Open Tailscale → Machines, keur het nieuwe Remote Drive-apparaat goed en klik daarna op Goedkeuring controleren. Je hoeft de sleutel niet opnieuw in te voeren.";
     }
 
     private void SetBusy(bool busy)
