@@ -218,7 +218,7 @@ internal sealed class ManagedTailnet
             }
             var result = await RunAsync(["up", "--timeout=30s", "--auth-key=file:" + secretPath,
                 "--hostname=ugreen-remote-drive-portable", "--accept-dns=false",
-                "--accept-routes=false", "--shields-up"], TimeSpan.FromSeconds(120));
+                "--accept-routes=false", "--shields-up", "--unattended=true"], TimeSpan.FromSeconds(120));
             if (result.ExitCode != 0 && BackendState(await StatusAsync()) != "NeedsMachineAuth")
                 throw new IOException("Tailscale-registratie is mislukt. Controleer de authkey, tailnet en " +
                     "eventuele apparaatgoedkeuring.");
@@ -240,7 +240,7 @@ internal sealed class ManagedTailnet
     public async Task ResumeAsync()
     {
         var result = await RunAsync(["up", "--timeout=20s", "--hostname=ugreen-remote-drive-portable", "--accept-dns=false",
-            "--accept-routes=false", "--shields-up"], TimeSpan.FromSeconds(30));
+            "--accept-routes=false", "--shields-up", "--unattended=true"], TimeSpan.FromSeconds(30));
         if (result.ExitCode != 0 && BackendState(await StatusAsync()) is not ("NeedsMachineAuth" or "NeedsLogin"))
             throw new IOException("Tailscale kon niet hervatten. Controleer internet en de toestemming van dit apparaat.");
     }
