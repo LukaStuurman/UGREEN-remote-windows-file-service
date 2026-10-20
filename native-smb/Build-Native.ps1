@@ -15,8 +15,10 @@ try {
         New-Item -ItemType Directory -Path $tailnet -Force | Out-Null
         go build -trimpath -buildvcs=false -o (Join-Path $tailnet 'tailscaled.exe') tailscale.com/cmd/tailscaled
         if ($LASTEXITCODE -ne 0) { throw 'Private tailscaled build failed.' }
-        go build -trimpath -buildvcs=false -o (Join-Path $tailnet 'tailscale.exe') tailscale.com/cmd/tailscale
+        go build -mod=mod -trimpath -buildvcs=false -o (Join-Path $tailnet 'tailscale.exe') tailscale.com/cmd/tailscale
         if ($LASTEXITCODE -ne 0) { throw 'Private Tailscale CLI build failed.' }
+        go mod verify
+        if ($LASTEXITCODE -ne 0) { throw 'Transitive CLI dependency verification failed.' }
     } finally { Pop-Location }
 
     $wintunZip = Join-Path $OutputDirectory 'wintun-0.14.1.zip'
