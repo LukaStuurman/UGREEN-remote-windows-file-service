@@ -16,6 +16,17 @@ $dll = Join-Path $AppRoot 'tailnet\wintun.dll'
 if (!(Test-Path $daemon) -or !(Test-Path $dll)) { throw 'Bundled daemon or signed Wintun DLL missing.' }
 $stateDirectory = Join-Path $env:ProgramData 'UGREEN Remote Drive Native'
 New-Item -ItemType Directory -Path $stateDirectory -Force | Out-Null
+# State contains the private tailnet identity: only SYSTEM and administrators may read it.
+$acl = Get-Acl -LiteralPath $stateDirectory
+$acl.SetAccessRuleProtection($true, $false)
+$inherit = [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
+$propagate = [System.Security.AccessControl.PropagationFlags]::None
+$allow = [System.Security.AccessControl.AccessControlType]::Allow
+foreach ($principal in @('SYSTEM', 'BUILTIN\Administrators')) {
+    $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($principal, 'FullControl', $inherit, $propagate, $allow)
+    $acl.AddAccessRule($rule)
+}
+Set-Acl -LiteralPath $stateDirectory -AclObject $acl
 $state = Join-Path $stateDirectory 'tailscaled.state'
 $socket = '\\.\pipe\ProtectedPrefix\Administrators\UGREENRemoteDriveNative\tailscaled'
 $arguments = "--tun=UGREENRemoteDriveNative --state="+ '"' + $state + '"' + " --socket="+ '"' + $socket + '"' + " --no-logs-no-support"
