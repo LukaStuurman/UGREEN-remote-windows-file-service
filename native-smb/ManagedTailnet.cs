@@ -59,7 +59,7 @@ internal sealed class ManagedTailnet
             var chars = new char[key.Length];
             try
             {
-                System.Runtime.InteropServices.var units = new short[key.Length];
+                var units = new short[key.Length];
                 try
                 {
                     System.Runtime.InteropServices.Marshal.Copy(bytes, units, 0, units.Length);
