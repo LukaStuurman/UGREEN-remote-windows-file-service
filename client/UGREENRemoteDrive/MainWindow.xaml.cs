@@ -1572,7 +1572,9 @@ public partial class MainWindow : Window
                 logicalRoot = _windowsTailnet.ShareRoot;
                 peerRoot = _windowsTailnet.PeerRoot;
                 stage = "SMB op de Tailscale-NAS controleren";
-                if (!await SmbSignInService.CanContactServerAsync(peerRoot))
+                // The first packet can establish a fresh WireGuard/DERP path.
+                // Do not classify a cold tunnel using the one-second LAN probe.
+                if (!await SmbSignInService.CanContactServerAsync(peerRoot, timeoutMilliseconds: 8000))
                     throw new IOException("De NAS is gevonden in Tailscale, maar SMB-poort 445 is niet bereikbaar. Controleer de NAS en Tailscale-toegangsregels.");
                 _windowsRoute = "ingebouwde Tailscale";
             }

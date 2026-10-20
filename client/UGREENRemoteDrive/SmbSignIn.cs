@@ -84,11 +84,11 @@ internal sealed class SmbSignInService(ISmbCredentialStore store, ISmbConnector 
 
     public void Forget(string root) => store.Delete(ValidateRoot(root));
 
-    public static async Task<bool> CanContactServerAsync(string root)
+    public static async Task<bool> CanContactServerAsync(string root, int timeoutMilliseconds = 1000)
     {
         root = ValidateRoot(root);
         using var client = new TcpClient();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeoutMilliseconds));
         try
         {
             await client.ConnectAsync(root[2..root.LastIndexOf('\\')], 445, timeout.Token);
