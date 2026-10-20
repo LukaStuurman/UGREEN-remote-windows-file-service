@@ -1,9 +1,9 @@
-[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Native.Tests")]
-
 using System.Net;
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Text.Json;
+
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Native.Tests")]
 
 namespace UGREENRemoteDrive.Native;
 
