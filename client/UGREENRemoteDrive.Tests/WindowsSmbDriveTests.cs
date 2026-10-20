@@ -44,6 +44,12 @@ public sealed class WindowsSmbDriveTests
         Assert.IsTrue(status.RootElement.TryGetProperty("BackendState", out var state));
         Assert.IsTrue(state.GetString() is "NoState" or "NeedsLogin" or "Stopped");
         Assert.IsTrue(status.RootElement.GetProperty("TUN").GetBoolean());
+        var adapters = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces();
+        var own = adapters.Single(a => a.Name.StartsWith("UGREENPortable", StringComparison.Ordinal));
+        Assert.AreNotEqual(new Guid("37217669-42da-4657-a55b-0d995d328250"), Guid.Parse(own.Id));
+        if (Environment.GetEnvironmentVariable("TECHBASE_REQUIRE_ADAPTER_COEXISTENCE") == "true")
+            Assert.IsTrue(adapters.Any(a => Guid.Parse(a.Id) == new Guid("37217669-42da-4657-a55b-0d995d328250")),
+                "The default adapter must remain present while the private adapter is active.");
         // No real auth key, existing identity, NAS, route, or SMB file is used.
     }
 

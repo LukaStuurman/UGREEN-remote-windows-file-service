@@ -9,6 +9,7 @@ $moduleFile = Join-Path $moduleRoot '.windows-smb.mod'
 $sumFile = Join-Path $moduleRoot '.windows-smb.sum'
 $previousGoFlags = $env:GOFLAGS
 $previousCgo = $env:CGO_ENABLED
+$privateSource = Join-Path $resources ('tailscale-private-source-' + [guid]::NewGuid().ToString('N'))
 Push-Location $moduleRoot
 try {
     # CLI-only transitive requirements must never rewrite the pinned helper module.
@@ -18,6 +19,12 @@ try {
     $env:GOFLAGS = '-mod=mod -modfile=.windows-smb.mod'
     go mod verify
     if ($LASTEXITCODE) { throw 'Windows SMB dependency verification failed.' }
+    python (Join-Path $PSScriptRoot 'windows-adapter/prepare.py') $privateSource
+    if ($LASTEXITCODE) { throw 'Private adapter source verification failed.' }
+    go mod edit "-replace=tailscale.com=$privateSource"
+    if ($LASTEXITCODE) { throw 'Private adapter module selection failed.' }
+    go test -run '^TestTechbasePrivateGUIDIsolation$' tailscale.com/net/tstun
+    if ($LASTEXITCODE) { throw 'Private adapter GUID isolation test failed.' }
     foreach ($component in @('tailscaled', 'tailscale')) {
         go build -trimpath -buildvcs=false -ldflags '-s -w -buildid=' -o (Join-Path $resources "$component.exe") "tailscale.com/cmd/$component"
         if ($LASTEXITCODE) { throw "Windows SMB $component compilation failed." }
@@ -27,6 +34,7 @@ try {
     $notices = Join-Path $resources 'THIRD-PARTY-NOTICES.txt'
     python notices.py --output $notices tailscale.com/cmd/tailscale tailscale.com/cmd/tailscaled
     if ($LASTEXITCODE) { throw 'Windows SMB notices collection failed.' }
+    [IO.File]::AppendAllText($notices, "`nTechbase modification to Tailscale v1.104.1: the Windows adapter GUID is derived from this application's private adapter name. Upstream Tailscale adapter defaults are preserved for other names. Modified source: native-smb/windows-adapter in the application repository.`n")
 
     $zip = Join-Path $resources 'wintun-0.14.1.zip'
     if (!(Test-Path -LiteralPath $zip)) { Invoke-WebRequest 'https://www.wintun.net/builds/wintun-0.14.1.zip' -OutFile $zip }
@@ -53,5 +61,12 @@ try {
     $env:GOFLAGS = $previousGoFlags
     $env:CGO_ENABLED = $previousCgo
     Remove-Item -LiteralPath $moduleFile, $sumFile -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $privateSource) {
+        $resolved = (Resolve-Path -LiteralPath $privateSource).Path
+        if ([IO.Path]::GetDirectoryName($resolved) -ne $resources -or [IO.Path]::GetFileName($resolved) -notlike 'tailscale-private-source-*') {
+            throw 'Refusing to clean a private source directory outside build resources.'
+        }
+        Remove-Item -LiteralPath $resolved -Recurse -Force
+    }
     Pop-Location
 }

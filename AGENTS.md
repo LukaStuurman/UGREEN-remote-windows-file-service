@@ -10,6 +10,12 @@ De eerste implementatie staat op `main` in commit `456fe4d` (`feat: add UGREENli
 
 ## Huidige status — 2026-09-27
 
+### Eigen Wintun-GUID — 2026-10-20
+
+- Bij inspectie van v0.7.0-preview.1: private daemon en GUI hebben dezelfde SID, de pipe bestaat maar de LocalAPI antwoordt niet; een bestaande systeem-Tailscale-adapter is actief. De fouttekst over een ander account was geen bewezen diagnose. Upstream v1.104.1 gebruikt voor verschillende --tun-namen dezelfde vaste Wintun-GUID. v0.7.1-preview.1 leidt uitsluitend voor --tun=UGREEN... een eigen stabiele GUID af; default Tailscale blijft ongewijzigd. Bouw via native-smb/windows-adapter/prepare.py: gepinde versie/hash, tijdelijke lokale modulekopie en modfile-replace, nooit globale Go-cache aanpassen. Beide native builds gebruiken dezelfde componenten.
+- Nieuwe private pipe tailscale-techbase-smb-<SID> en state onder LocalAppData/UGREEN Remote Drive Windows SMB voorkomen hergebruik van het vastgelopen oude kanaal. Dit vraagt eenmalige eigen registratie; geen eerdere identiteiten kopiëren, processen stoppen of bestaande Tailscale-service veranderen. De gebruiker mag zelf de nieuwe EXE openen en UAC met hetzelfde account bevestigen.
+- Pure GUID-tests lokaal; echte twee-adapter-coexistentietest uitsluitend op wegwerpbare Windows-CI zonder auth key/tailnet/NAS. Geen lokale driverstart of NAS-bestandswijziging. Werkende eigen tailnetregistratie en NAS-/AutoCAD-save blijven apart te verifiëren.
+
 ### Windows-SMB-schakelaar in de gewone app — 2026-10-20
 
 - Gebruiker bevestigt dat lokale SMB in de aparte portable editie werkt, maar Tailscale niet. Vraagt dezelfde Windows-SMB-route als instelling in de gewone app en staat een Windows-beheerdersprompt toe. `UseWindowsSmb` is opt-in en blijft bij instellingen-save behouden. Deze modus initialiseert geen WebView2 en roept geen Dokany-mount aan; een UGREENlink-fallback wordt niet stil gekozen.

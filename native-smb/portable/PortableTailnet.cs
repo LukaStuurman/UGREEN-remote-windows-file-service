@@ -10,7 +10,7 @@ using System.Text.Json;
 namespace UGREENRemoteDrive.Native;
 
 /// <summary>
-/// Single-EXE launcher for the official Tailscale binaries. Native Windows SMB
+/// Single-EXE launcher for pinned Tailscale with a private Windows adapter GUID. Native Windows SMB
 /// still requires a kernel-network adapter; the signed Wintun DLL is extracted
 /// on demand and the per-user daemon is started with a UAC prompt. No Windows
 /// service, installer, scheduled task, Dokany or system Tailscale app is used.
@@ -19,10 +19,10 @@ internal sealed class ManagedTailnet
 {
     internal static readonly string DataRoot = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "UGREEN Remote Drive Portable");
+        "UGREEN Remote Drive Windows SMB");
     private static readonly string UserSid = WindowsIdentity.GetCurrent().User?.Value
         ?? throw new InvalidOperationException("Windows-gebruikersidentiteit is niet beschikbaar.");
-    internal static string PrivateSocket => @"\\.\pipe\tailscale-" + UserSid;
+    internal static string PrivateSocket => @"\\.\pipe\tailscale-techbase-smb-" + UserSid;
     private static string AdapterName => "UGREENPortable" + Convert.ToHexString(
         SHA256.HashData(Encoding.UTF8.GetBytes(UserSid)))[..10];
     private static string StatePath => Path.Combine(DataRoot, "tailscaled.state");
@@ -150,9 +150,7 @@ internal sealed class ManagedTailnet
                 await Task.Delay(500);
             }
         }
-        throw new IOException("De Tailscale-adapter is niet bereikbaar. Start de portable EXE vanuit " +
-            "een Windows-account dat zelf beheerder is en bevestig UAC met hetzelfde account. " +
-            "Een ander administratoraccount heeft een andere Tailscale-identiteit.");
+        throw new IOException("Het eigen Tailscale-besturingskanaal antwoordt niet. Dit kan door een adapterconflict of Windows-beleid komen; het bewijst geen aanmelding met een ander account.");
     }
 
     public async Task<string> StatusAsync()
