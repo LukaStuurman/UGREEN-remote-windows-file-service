@@ -1,3 +1,5 @@
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Native.Tests")]
+
 using System.Net;
 using System.Runtime.InteropServices;
 using System.Security;
